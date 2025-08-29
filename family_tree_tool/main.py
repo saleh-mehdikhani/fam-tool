@@ -4,47 +4,35 @@ import os
 from pathlib import Path
 import git
 
-CONFIG_PATH = Path.home() / '.fam_config.yml'
-
 # --- Repository Discovery ---
 
 def find_repos():
-    """Finds the data and graph repos, searching up from the current directory or from config."""
-    search_path = None
+    """Finds the data and graph repos by searching up from the current directory."""
     try:
-        # First, try to find repo in current directory hierarchy
+        # Find the top-level of the current git repository.
         search_path = Path(git.Repo(os.getcwd(), search_parent_directories=True).working_dir)
-    except git.InvalidGitRepositoryError:
-        # If not in a git repo, check the config file
-        if CONFIG_PATH.exists():
-            with open(CONFIG_PATH, 'r') as f:
-                config = yaml.safe_load(f)
-                if config and 'last_project_path' in config:
-                    search_path = Path(config['last_project_path'])
-                    print(f"Using project path from config: {search_path}")
-    
-    if not search_path or not search_path.exists():
-        return None, None
-
-    try:
+        
         # Simply try to instantiate the repos. Let GitPython handle validation.
         data_repo = git.Repo(search_path)
         graph_repo_path = search_path / 'family_graph'
         graph_repo = git.Repo(graph_repo_path)
         return data_repo, graph_repo
     except (git.InvalidGitRepositoryError, git.NoSuchPathError):
-        # This will catch if search_path or graph_repo_path is not a valid repo.
+        # This will catch if the current dir is not a git repo, or the submodule is missing.
         return None, None
 
 import shutil
 
-def _write_config(path):
-    with open(CONFIG_PATH, 'w') as f:
-        yaml.dump({'last_project_path': str(path)}, f)
-
 def initialize_project(root_path_str, force=False):
     """Creates a new family tree project at the specified path."""
+    # Resolve path first to enable reliable comparison
     root_path = Path(root_path_str).resolve()
+
+    # Safeguard against deleting CWD. This is the key check.
+    if force and root_path.exists() and root_path == Path.cwd().resolve():
+        print(f"Error: Cannot overwrite the current working directory.")
+        return False
+
     graph_source_path = root_path.with_name(root_path.name + "_graph_source")
 
     if force:
@@ -84,12 +72,8 @@ def initialize_project(root_path_str, force=False):
         data_repo.index.commit("Initial commit: Add family_graph submodule and people directory")
         print("Created initial commit.")
 
-        # 5. Write path to config
-        _write_config(root_path)
-        print(f"Saved project path to {CONFIG_PATH}")
-
     finally:
-        # 6. Clean up the temporary source repo
+        # 5. Clean up the temporary source repo
         if graph_source_path.exists():
             shutil.rmtree(graph_source_path)
             print(f"Cleaned up graph source directory.")
