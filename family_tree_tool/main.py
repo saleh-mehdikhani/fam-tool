@@ -23,18 +23,17 @@ def find_repos():
                     search_path = Path(config['last_project_path'])
                     print(f"Using project path from config: {search_path}")
     
-    if not search_path:
+    if not search_path or not search_path.exists():
         return None, None
 
     try:
-        graph_repo_path = search_path / 'family_graph'
-        if not graph_repo_path.exists() or not (graph_repo_path / '.git').is_dir():
-            return None, None
-
+        # Simply try to instantiate the repos. Let GitPython handle validation.
         data_repo = git.Repo(search_path)
+        graph_repo_path = search_path / 'family_graph'
         graph_repo = git.Repo(graph_repo_path)
         return data_repo, graph_repo
-    except git.InvalidGitRepositoryError:
+    except (git.InvalidGitRepositoryError, git.NoSuchPathError):
+        # This will catch if search_path or graph_repo_path is not a valid repo.
         return None, None
 
 import shutil
@@ -165,8 +164,8 @@ def add_person(first_name, last_name, middle_name, birth_date, gender, nickname)
     # 5. Write YAML file
     if not filepath.parent.exists():
         filepath.parent.mkdir()
-    with open(filepath, 'w') as f:
-        yaml.dump(person_data, f, default_flow_style=False, sort_keys=False)
+    with open(filepath, 'w', encoding='utf-8') as f:
+        yaml.dump(person_data, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
     print(f"Created person file: {filepath}")
 
     # 6. Commit to data repo
