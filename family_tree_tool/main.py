@@ -92,10 +92,10 @@ def add_person(first_name, last_name, middle_name, birth_date, gender, nickname)
         print("Error: Must be run from within a valid data repository with a 'family_graph' submodule.")
         return False
 
-    # 1. Generate ID and filename first, as it's needed for the graph commit
+    # 1. Generate ID and filename
     person_id = str(uuid.uuid4())
     short_id = person_id[:8]
-    filename = f"{first_name.lower()}_{last_name.lower()}_{short_id}.yml"
+    filename = f"{short_id}_{first_name.lower()}_{last_name.lower()}.yml"
     filepath = Path(data_repo.working_dir) / 'people' / filename
     graph_repo_path = Path(graph_repo.working_dir)
 
@@ -109,19 +109,19 @@ def add_person(first_name, last_name, middle_name, birth_date, gender, nickname)
         # Create the reference file
         ref_filepath = graph_repo_path / 'person.ref'
         with open(ref_filepath, 'w') as f:
-            f.write(filename)
+            f.write(short_id)
 
         # Add and commit the reference file
+        commit_message = f"Person: {first_name} {last_name} ({short_id})"
         graph_repo.index.add([str(ref_filepath)])
-        commit_message = f"Person: {first_name} {last_name}"
         graph_repo.index.commit(commit_message)
         
         new_graph_commit = graph_repo.head.commit
         print(f"Created graph commit: {new_graph_commit.hexsha}")
 
-        # 3. Tag the new commit with the filename for easy lookup
-        graph_repo.create_tag(filename, ref=new_graph_commit, message=f"Reference to {filename}")
-        print(f"Tagged commit with: {filename}")
+        # 3. Tag the new commit with the stable short_id for easy lookup
+        graph_repo.create_tag(short_id, ref=new_graph_commit, message=f"Reference to person {short_id}")
+        print(f"Tagged commit with: {short_id}")
 
     except (IndexError, ValueError) as e:
         print(f"Error during graph operation: {e}")
@@ -133,7 +133,7 @@ def add_person(first_name, last_name, middle_name, birth_date, gender, nickname)
             ref_filepath.unlink()
 
 
-    # 4. Assemble YAML data (without graph_sha)
+    # 4. Assemble YAML data
     full_name = f"{first_name}{f' {middle_name}' if middle_name else ''} {last_name}"
     person_data = {
         'id': person_id,
@@ -154,7 +154,7 @@ def add_person(first_name, last_name, middle_name, birth_date, gender, nickname)
 
     # 6. Commit to data repo
     data_repo.index.add([str(filepath)])
-    data_repo.index.commit(f"feat: Add person '{full_name}'")
+    data_repo.index.commit(f"feat: Add person '{full_name}' ({short_id})")
     print("Committed person file to data repository.")
 
     return True
