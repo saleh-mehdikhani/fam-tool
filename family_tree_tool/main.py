@@ -138,12 +138,19 @@ def add_person(first_name, last_name, middle_name, birth_date, gender, nickname)
     person_data = {
         'id': person_id,
         'name': full_name,
-        'gender': gender,
-        'birth_date': birth_date,
-        'nickname': nickname,
+        'first_name': first_name,
+        'last_name': last_name,
+        'middle_name': middle_name or '',
+        'gender': gender or '',
+        'nickname': nickname or '',
+        'photo_path': '',
+        'birth_date': birth_date or '',
+        'birth_place': '',
+        'death_date': '',
+        'death_place': '',
+        'occupation': '',
+        'notes': ''
     }
-    # Clean up optional fields that are None
-    person_data = {k: v for k, v in person_data.items() if v is not None}
 
     # 5. Write YAML file
     if not filepath.parent.exists():
