@@ -32,9 +32,9 @@ def init(root_path, force):
 
 
 @cli.command('add')
-@click.option('-f', '--first-name', required=True, help='The person\'s first name.')
+@click.option('-fn', '--first-name', required=True, help='The person\'s first name.')
 @click.option('-l', '--last-name', required=True, help='The person\'s last name.')
-@click.option('-m', '--middle-name', help='The person\'s middle name.')
+@click.option('-mn', '--middle-name', help='The person\'s middle name.')
 @click.option('-b', '--birth-date', help='Birth date in YYYY-MM-DD format.')
 @click.option('-g', '--gender', help='The person\'s gender.')
 @click.option('-n', '--nickname', help='The person\'s nickname.')
@@ -48,16 +48,29 @@ def add(first_name, last_name, middle_name, birth_date, gender, nickname):
         click.secho("Failed to add person.", fg='red')
 
 @cli.command('marry')
-@click.option('-f', '--father', 'father_id', required=True, help="The father's person ID.")
-@click.option('-m', '--mother', 'mother_id', required=True, help="The mother's person ID.")
-def marry(father_id, mother_id):
+@click.option('--male', 'male_id', required=True, help="The male's person ID.")
+@click.option('--female', 'female_id', required=True, help="The female's person ID.")
+def marry(male_id, female_id):
     """Creates a marriage event between two people."""
-    click.echo(f"Marrying {father_id} and {mother_id}...")
-    success = main.marry(father_id, mother_id)
+    click.echo(f"Marrying {male_id} and {female_id}...")
+    success = main.marry(male_id, female_id)
     if success:
         click.secho("Successfully created marriage event!", fg='green')
     else:
         click.secho("Failed to create marriage event.", fg='red')
+
+@cli.command('child')
+@click.argument('child_id')
+@click.option('-f', '--father', 'father_id', required=True, help="The father's person ID.")
+@click.option('-m', '--mother', 'mother_id', required=True, help="The mother's person ID.")
+def child(child_id, father_id, mother_id):
+    """Adds a child to a couple."""
+    click.echo(f"Adding {child_id} as a child of {father_id} and {mother_id}...")
+    success = main.add_child(father_id, mother_id, child_id)
+    if success:
+        click.secho("Successfully added child!", fg='green')
+    else:
+        click.secho("Failed to add child.", fg='red')
 
 if __name__ == '__main__':
     cli()

@@ -102,21 +102,14 @@ def add_person(first_name, last_name, middle_name, birth_date, gender, nickname)
     # 2. Create graph commit containing a reference to the person's data file
     try:
         graph_root_commit = graph_repo.tags['GRAPH_ROOT'].commit
-        # Operate in a detached HEAD state starting from the root commit
         graph_repo.head.reference = graph_root_commit
         graph_repo.head.reset(index=True, working_tree=True)
 
-        # Create the reference file
-        ref_filepath = graph_repo_path / 'person.ref'
-        with open(ref_filepath, 'w') as f:
-            f.write(short_id)
-
-        # Add and commit the reference file
+        # Create an empty commit with the person's info in the message
         commit_message = f"Person: {first_name} {last_name} ({short_id})"
-        graph_repo.index.add([str(ref_filepath)])
-        graph_repo.index.commit(commit_message)
-        
+        graph_repo.git.commit('--allow-empty', '-m', commit_message)
         new_graph_commit = graph_repo.head.commit
+
         print(f"Created graph commit: {new_graph_commit.hexsha}")
 
         # 3. Tag the new commit with the stable short_id for easy lookup
@@ -127,10 +120,6 @@ def add_person(first_name, last_name, middle_name, birth_date, gender, nickname)
         print(f"Error during graph operation: {e}")
         print("Is this a valid project? Graph repository might be missing the GRAPH_ROOT tag.")
         return False
-    finally:
-        # Clean up the reference file from the working directory
-        if 'ref_filepath' in locals() and ref_filepath.exists():
-            ref_filepath.unlink()
 
 
     # 4. Assemble YAML data
@@ -166,7 +155,7 @@ def add_person(first_name, last_name, middle_name, birth_date, gender, nickname)
 
     return True
 
-def marry(father_id, mother_id):
+def marry(male_id, female_id):
     """Creates a marriage event between two people in the graph repository."""
     data_repo, graph_repo = find_repos()
     if not data_repo or not graph_repo:
@@ -174,24 +163,31 @@ def marry(father_id, mother_id):
         return False
 
     try:
-        father_commit = _find_person_commit_by_id(graph_repo, father_id)
-        mother_commit = _find_person_commit_by_id(graph_repo, mother_id)
+        male_commit = _find_person_commit_by_id(graph_repo, male_id)
+        female_commit = _find_person_commit_by_id(graph_repo, female_id)
 
-        if not father_commit or not mother_commit:
+        if not male_commit or not female_commit:
             print("Error: Could not find one or both persons.")
             return False
 
+        # Check if marriage already exists
+        marriage_tag1 = f"marriage_{male_id[:8]}_{female_id[:8]}"
+        marriage_tag2 = f"marriage_{female_id[:8]}_{male_id[:8]}"
+        if marriage_tag1 in graph_repo.tags or marriage_tag2 in graph_repo.tags:
+            print("Error: Marriage already registered.")
+            return False
+
         # Create a merge commit
-        merge_base = graph_repo.merge_base(father_commit, mother_commit)
-        graph_repo.index.merge_tree(mother_commit, base=merge_base)
-        commit_message = f"Marry: {father_id} and {mother_id}"
-        marriage_commit = graph_repo.index.commit(commit_message, parent_commits=(father_commit, mother_commit), head=False)
+        merge_base = graph_repo.merge_base(male_commit, female_commit)
+        graph_repo.index.merge_tree(female_commit, base=merge_base)
+        commit_message = f"Marriage: {male_id} and {female_id}"
+        marriage_commit = graph_repo.index.commit(commit_message, parent_commits=(male_commit, female_commit), head=False)
 
         # Tag the marriage commit
-        marriage_tag = f"marriage_{father_id[:8]}_{mother_id[:8]}"
+        marriage_tag = f"marriage_{male_id[:8]}_{female_id[:8]}"
         graph_repo.create_tag(marriage_tag, ref=marriage_commit)
 
-        print(f"Successfully created marriage event between {father_id} and {mother_id}.")
+        print(f"Successfully created marriage event between {male_id} and {female_id}.")
         return True
 
     except git.GitCommandError as e:
@@ -208,3 +204,74 @@ def _find_person_commit_by_id(repo, person_id):
     except git.BadName:
         print(f"Error: Could not find person with ID '{person_id}'.")
         return None
+
+def add_child(father_id, mother_id, child_id):
+    """Adds a child to a couple, creating the marriage if it doesn't exist."""
+    data_repo, graph_repo = find_repos()
+    if not data_repo or not graph_repo:
+        print("Error: Must be run from within a valid data repository with a 'family_graph' submodule.")
+        return False
+
+    graph_repo.head.reset(index=True, working_tree=True)
+
+    # 1. Find all parties.
+    father_commit = _find_person_commit_by_id(graph_repo, father_id)
+    mother_commit = _find_person_commit_by_id(graph_repo, mother_id)
+    child_commit = _find_person_commit_by_id(graph_repo, child_id)
+
+    if not all([father_commit, mother_commit, child_commit]):
+        print("Error: Could not find father, mother, or child.")
+        return False
+
+    # 2. Find or create the marriage.
+    marriage_tag_name = f"marriage_{father_id[:8]}_{mother_id[:8]}"
+    reverse_marriage_tag_name = f"marriage_{mother_id[:8]}_{father_id[:8]}"
+    marriage_tag = None
+
+    if marriage_tag_name in graph_repo.tags:
+        marriage_tag = graph_repo.tags[marriage_tag_name]
+    elif reverse_marriage_tag_name in graph_repo.tags:
+        marriage_tag = graph_repo.tags[reverse_marriage_tag_name]
+
+    if marriage_tag:
+        marriage_commit = marriage_tag.commit
+        print("Found existing marriage.")
+    else:
+        print("Marriage not found, creating it now.")
+        if not marry(father_id, mother_id):
+            print("Error: Failed to create marriage.")
+            return False
+        # After creating the marriage, we need to get the commit.
+        # The marry function creates a tag, so we can find the commit through the tag.
+        marriage_tag = graph_repo.tags[marriage_tag_name]
+        marriage_commit = marriage_tag.commit
+        graph_repo.head.reset(index=True, working_tree=True)
+
+    # 3. Rebase the child's history onto the marriage commit.
+    try:
+        # We need to find the commit that is the parent of the child commit.
+        # This is the commit that the child was based on.
+        # In our case, this will be the GRAPH_ROOT commit.
+        child_parent_commit = child_commit.parents[0]
+
+        # We are going to rebase the child commit onto the marriage commit.
+        # The rebase command will be: git rebase --onto <new_base> <old_base> <branch_to_rebase>
+        # In our case: git rebase --onto marriage_commit child_parent_commit child_commit
+        graph_repo.git.rebase('--onto', marriage_commit.hexsha, child_parent_commit.hexsha, child_commit.hexsha)
+
+        # After the rebase, the child's tag will be pointing to the old commit.
+        # We need to update the tag to point to the new commit.
+        # The new commit will be the head of the graph repo.
+        new_child_commit = graph_repo.head.commit
+        graph_repo.create_tag(child_id, ref=new_child_commit, force=True, message=f"Reference to person {child_id}")
+
+        print(f"Successfully added {child_id} as a child of {father_id} and {mother_id}.")
+        return True
+    except git.GitCommandError as e:
+        print(f"Error during git rebase operation: {e}")
+        # If the rebase fails, we should abort it.
+        try:
+            graph_repo.git.rebase('--abort')
+        except git.GitCommandError:
+            pass
+        return False
