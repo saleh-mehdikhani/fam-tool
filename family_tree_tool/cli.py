@@ -47,5 +47,17 @@ def add(first_name, last_name, middle_name, birth_date, gender, nickname):
     else:
         click.secho("Failed to add person.", fg='red')
 
+@cli.command('marry')
+@click.option('-f', '--father', 'father_id', required=True, help="The father's person ID.")
+@click.option('-m', '--mother', 'mother_id', required=True, help="The mother's person ID.")
+def marry(father_id, mother_id):
+    """Creates a marriage event between two people."""
+    click.echo(f"Marrying {father_id} and {mother_id}...")
+    success = main.marry(father_id, mother_id)
+    if success:
+        click.secho("Successfully created marriage event!", fg='green')
+    else:
+        click.secho("Failed to create marriage event.", fg='red')
+
 if __name__ == '__main__':
     cli()

@@ -165,3 +165,46 @@ def add_person(first_name, last_name, middle_name, birth_date, gender, nickname)
     print("Committed person file to data repository.")
 
     return True
+
+def marry(father_id, mother_id):
+    """Creates a marriage event between two people in the graph repository."""
+    data_repo, graph_repo = find_repos()
+    if not data_repo or not graph_repo:
+        print("Error: Must be run from within a valid data repository with a 'family_graph' submodule.")
+        return False
+
+    try:
+        father_commit = _find_person_commit_by_id(graph_repo, father_id)
+        mother_commit = _find_person_commit_by_id(graph_repo, mother_id)
+
+        if not father_commit or not mother_commit:
+            print("Error: Could not find one or both persons.")
+            return False
+
+        # Create a merge commit
+        merge_base = graph_repo.merge_base(father_commit, mother_commit)
+        graph_repo.index.merge_tree(mother_commit, base=merge_base)
+        commit_message = f"Marry: {father_id} and {mother_id}"
+        marriage_commit = graph_repo.index.commit(commit_message, parent_commits=(father_commit, mother_commit), head=False)
+
+        # Tag the marriage commit
+        marriage_tag = f"marriage_{father_id[:8]}_{mother_id[:8]}"
+        graph_repo.create_tag(marriage_tag, ref=marriage_commit)
+
+        print(f"Successfully created marriage event between {father_id} and {mother_id}.")
+        return True
+
+    except git.GitCommandError as e:
+        print(f"Error during git operation: {e}")
+        return False
+
+def _find_person_commit_by_id(repo, person_id):
+    """Finds a person's commit in the graph repo by its short or long ID."""
+    try:
+        obj = repo.rev_parse(person_id)
+        if isinstance(obj, git.TagObject):
+            return obj.object
+        return obj
+    except git.BadName:
+        print(f"Error: Could not find person with ID '{person_id}'.")
+        return None
