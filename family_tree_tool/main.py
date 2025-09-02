@@ -3,6 +3,7 @@ import yaml
 import os
 from pathlib import Path
 import git
+import subprocess
 
 # --- Repository Discovery ---
 
@@ -205,6 +206,35 @@ def _find_person_commit_by_id(repo, person_id):
         print(f"Error: Could not find person with ID '{person_id}'.")
         return None
 
+def _make_child_rewrite_permanent(graph_repo, child_commit, marriage_commit):
+    original_cwd = os.getcwd()
+    os.chdir(graph_repo.working_dir)
+
+    try:
+        # Create graft (temporary parent change)
+        graph_repo.git.replace('--graft', child_commit.hexsha, marriage_commit.hexsha)
+
+        # Run git-filter-repo to make it permanent
+        subprocess.run([
+            "git", "filter-repo",
+            "--replace-refs", "delete-no-add",
+            "--force"
+        ], check=True)
+
+        print("History rewrite completed successfully.")
+        return True
+
+    except subprocess.CalledProcessError as e:
+        print(f"Error during history rewrite: {e}")
+        return False
+
+    finally:
+        os.chdir(original_cwd)
+        try:
+            graph_repo.git.replace('-d', child_commit.hexsha)
+        except Exception:
+            pass
+
 def add_child(father_id, mother_id, child_id):
     """Adds a child to a couple, creating the marriage if it doesn't exist."""
     data_repo, graph_repo = find_repos()
@@ -241,37 +271,30 @@ def add_child(father_id, mother_id, child_id):
         if not marry(father_id, mother_id):
             print("Error: Failed to create marriage.")
             return False
-        # After creating the marriage, we need to get the commit.
-        # The marry function creates a tag, so we can find the commit through the tag.
         marriage_tag = graph_repo.tags[marriage_tag_name]
         marriage_commit = marriage_tag.commit
         graph_repo.head.reset(index=True, working_tree=True)
 
-    # 3. Rebase the child's history onto the marriage commit.
-    try:
-        # We need to find the commit that is the parent of the child commit.
-        # This is the commit that the child was based on.
-        # In our case, this will be the GRAPH_ROOT commit.
-        child_parent_commit = child_commit.parents[0]
-
-        # We are going to rebase the child commit onto the marriage commit.
-        # The rebase command will be: git rebase --onto <new_base> <old_base> <branch_to_rebase>
-        # In our case: git rebase --onto marriage_commit child_parent_commit child_commit
-        graph_repo.git.rebase('--onto', marriage_commit.hexsha, child_parent_commit.hexsha, child_commit.hexsha)
-
-        # After the rebase, the child's tag will be pointing to the old commit.
-        # We need to update the tag to point to the new commit.
-        # The new commit will be the head of the graph repo.
-        new_child_commit = graph_repo.head.commit
-        graph_repo.create_tag(child_id, ref=new_child_commit, force=True, message=f"Reference to person {child_id}")
-
-        print(f"Successfully added {child_id} as a child of {father_id} and {mother_id}.")
-        return True
-    except git.GitCommandError as e:
-        print(f"Error during git rebase operation: {e}")
-        # If the rebase fails, we should abort it.
-        try:
-            graph_repo.git.rebase('--abort')
-        except git.GitCommandError:
-            pass
+    # 3. Rewrite history to make the child a child of the marriage.
+    if not _make_child_rewrite_permanent(graph_repo, child_commit, marriage_commit):
         return False
+
+    # 4. Update tags
+    commit_map_path = os.path.join(graph_repo.git_dir, "filter-repo", "commit-map")
+    if os.path.exists(commit_map_path):
+        commit_map = {}
+        with open(commit_map_path, "r") as f:
+            for line in f:
+                old_sha, new_sha = line.strip().split()
+                commit_map[old_sha] = new_sha
+
+        for tag in graph_repo.tags:
+            if tag.commit.hexsha in commit_map:
+                new_commit = graph_repo.commit(commit_map[tag.commit.hexsha])
+                if tag.tag is not None:  # annotated tag
+                    graph_repo.create_tag(tag.name, ref=new_commit, force=True, message=tag.tag.message)
+                else:  # lightweight tag
+                    graph_repo.create_tag(tag.name, ref=new_commit, force=True)
+
+    print(f"Successfully added {child_id} as a child of {father_id} and {mother_id}.")
+    return True
