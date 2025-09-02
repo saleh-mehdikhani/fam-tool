@@ -1,8 +1,8 @@
 # Fam-Tool
 
-A command-line tool to manage family tree data using a dual-repository Git model.
+A command-line tool for managing family tree data using a dual-repository Git model.
 
-This tool separates the person data (in YAML files) from the relationship data (a Git commit graph), allowing for flexible data management and a robust, version-controlled family structure.
+This tool separates person data (YAML files) from relationship data (a Git commit graph), allowing for flexible data management and a robust, version-controlled family structure.
 
 ## Installation
 
@@ -21,50 +21,44 @@ source .venv/bin/activate
 pip install -e .
 ```
 
-## Getting Started: Initializing Your Data Repository
+## Getting Started
 
-The `fam` tool operates on a specific repository structure. To create a new family tree project, you must first initialize your data and graph repositories.
+To create a new family tree project, use the `fam init` command. This will create a new directory where your family tree data will be stored.
 
-1.  **Create a directory for your graph source.** This will be a bare repository that only stores the relationship graph.
-    ```bash
-    mkdir my_family_graph
-    cd my_family_graph
-    git init --bare
-    cd ..
-    ```
+```bash
+# This path is where your family tree data will be stored.
+fam init /path/to/my-family-tree
+```
 
-2.  **Create a directory for your main data repository.**
-    ```bash
-    mkdir my_family_data
-    cd my_family_data
-    git init
-    ```
+This will create a new directory named `my-family-tree` at the specified path, with the following structure:
 
-3.  **Add the graph repository as a submodule named `family_graph`.**
-    ```bash
-    # Use a relative path to the graph source repo you created
-    git submodule add ../my_family_graph family_graph
-    ```
+```
+/path/to/
+└── my-family-tree/
+    ├── .git/
+    ├── .gitmodules
+    ├── family_graph/
+    └── people/
+```
 
-4.  **Create the `people` directory and commit the structure.**
-    ```bash
-    mkdir people
-    git add .gitmodules family_graph people
-    git commit -m "Initial commit: Add family_graph submodule and people directory"
-    ```
-
-You are now ready to use the `fam` tool inside the `my_family_data` directory.
+You are now ready to use the `fam` tool inside the `my-family-tree` directory.
 
 ## Usage
 
 ### Add a new person
 
-To add a new person, `cd` into your data repository and use the `fam add` command.
+```bash
+fam add -fn "John" -l "Doe" -b "1950-10-25" -g "Male"
+```
+
+### Marry two people
 
 ```bash
-# Navigate to your data repository
-cd /path/to/my_family_data
+fam marry --male <male_person_id> --female <female_person_id>
+```
 
-# Add a person using required and optional flags
-fam add -f "John" -l "Doe" -b "1950-10-25" -g "Male"
+### Add a child to a couple
+
+```bash
+fam child <child_id> -f <father_id> -m <mother_id>
 ```
