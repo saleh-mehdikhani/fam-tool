@@ -1,3 +1,6 @@
+import os
+from pathlib import Path
+
 import click
 from . import main
 
@@ -5,9 +8,6 @@ from . import main
 def cli():
     """A CLI tool to manage family tree data using a dual-repo Git model."""
     pass
-
-import os
-from pathlib import Path
 
 @cli.command('init')
 @click.argument('root_path', type=click.Path())
@@ -26,7 +26,7 @@ def init(root_path, force):
     click.echo(f"Initializing new project at: {root_path}")
     success = main.initialize_project(root_path, force=True) # Pass force=True after confirmation
     if success:
-        click.secho(f"Successfully initialized project!", fg='green')
+        click.secho("Successfully initialized project!", fg='green')
     else:
         click.secho("Failed to initialize project.", fg='red')
 
@@ -71,6 +71,17 @@ def child(child_id, father_id, mother_id):
         click.secho("Successfully added child!", fg='green')
     else:
         click.secho("Failed to add child.", fg='red')
+
+@cli.command('export')
+@click.option('--output', default='family_tree.json', help='The output file name.')
+def export(output):
+    """Exports the family tree to a JSON file."""
+    click.echo(f"Exporting family tree to {output}...")
+    success = main.export_to_json(output)
+    if success:
+        click.secho(f"Successfully exported family tree to {output}!", fg='green')
+    else:
+        click.secho("Failed to export family tree.", fg='red')
 
 if __name__ == '__main__':
     cli()

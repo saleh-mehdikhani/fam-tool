@@ -4,6 +4,8 @@ import os
 from pathlib import Path
 import git
 import subprocess
+import json
+import shutil
 
 # --- Repository Discovery ---
 
@@ -22,8 +24,6 @@ def find_repos():
         # This will catch if the current dir is not a git repo, or the submodule is missing.
         return None, None
 
-import shutil
-
 def initialize_project(root_path_str, force=False):
     """Creates a new family tree project at the specified path."""
     # Resolve path first to enable reliable comparison
@@ -31,7 +31,7 @@ def initialize_project(root_path_str, force=False):
 
     # Safeguard against deleting CWD. This is the key check.
     if force and root_path.exists() and root_path == Path.cwd().resolve():
-        print(f"Error: Cannot overwrite the current working directory.")
+        print("Error: Cannot overwrite the current working directory.")
         return False
 
     graph_source_path = root_path.with_name(root_path.name + "_graph_source")
@@ -77,7 +77,7 @@ def initialize_project(root_path_str, force=False):
         # 5. Clean up the temporary source repo
         if graph_source_path.exists():
             shutil.rmtree(graph_source_path)
-            print(f"Cleaned up graph source directory.")
+            print("Cleaned up graph source directory.")
     
     print(f"Successfully created new family tree project at {root_path}")
     return True
@@ -98,7 +98,6 @@ def add_person(first_name, last_name, middle_name, birth_date, gender, nickname)
     short_id = person_id[:8]
     filename = f"{short_id}_{first_name.lower()}_{last_name.lower()}.yml"
     filepath = Path(data_repo.working_dir) / 'people' / filename
-    graph_repo_path = Path(graph_repo.working_dir)
 
     # 2. Create graph commit containing a reference to the person's data file
     try:
@@ -298,3 +297,87 @@ def add_child(father_id, mother_id, child_id):
 
     print(f"Successfully added {child_id} as a child of {father_id} and {mother_id}.")
     return True
+
+def export_to_json(output_filename):
+    data_repo, graph_repo = find_repos()
+    if not data_repo or not graph_repo:
+        print("Error: Must be run from within a valid data repository with a 'family_graph' submodule.")
+        return False
+
+    nodes = []
+    edges = []
+
+    # Read person data (nodes)
+    people_dir = Path(data_repo.working_dir) / 'people'
+    for person_file in people_dir.glob('*.yml'):
+        with open(person_file, 'r', encoding='utf-8') as f:
+            person_data = yaml.safe_load(f)
+            nodes.append(person_data)
+
+    # Extract relationships (edges) from graph repo
+    person_id_to_commit_hexsha = {}
+    for tag in graph_repo.tags:
+        if tag.name.startswith("marriage_"):
+            # Marriage tags are like marriage_shortid1_shortid2
+            parts = tag.name.split('_')
+            if len(parts) == 3:
+                id1_short = parts[1]
+                id2_short = parts[2]
+                # Find full IDs from nodes
+                id1_full = next((node['id'] for node in nodes if node['id'].startswith(id1_short)), None)
+                id2_full = next((node['id'] for node in nodes if node['id'].startswith(id2_short)), None)
+                if id1_full and id2_full:
+                    edges.append({"from": id1_full, "to": id2_full, "type": "partner"})
+        else:
+            # Assume other tags are person IDs
+            person_id_to_commit_hexsha[tag.name] = tag.commit.hexsha
+
+    # Iterate through commits to find child relationships
+    for commit in graph_repo.iter_commits():
+        # Check if this commit is a person commit (has a tag matching a short ID)
+        child_id_short = None
+        for tag in graph_repo.tags: # Iterate through tags to find the one pointing to this commit
+            if tag.commit.hexsha == commit.hexsha and not tag.name.startswith("marriage_") and tag.name != "GRAPH_ROOT":
+                child_id_short = tag.name
+                break
+
+        if child_id_short:
+            child_id_full = next((node['id'] for node in nodes if node['id'].startswith(child_id_short)), None)
+            if child_id_full and commit.parents:
+                for parent_commit in commit.parents:
+                    # Check if parent is a marriage commit
+                    marriage_tag_name = None
+                    for tag in graph_repo.tags:
+                        if tag.commit.hexsha == parent_commit.hexsha and tag.name.startswith("marriage_"):
+                            marriage_tag_name = tag.name
+                            break
+                    
+                    if marriage_tag_name:
+                        # Extract parent IDs from marriage tag name
+                        parts = marriage_tag_name.split('_')
+                        if len(parts) == 3:
+                            parent1_id_short = parts[1]
+                            parent2_id_short = parts[2]
+                            parent1_id_full = next((node['id'] for node in nodes if node['id'].startswith(parent1_id_short)), None)
+                            parent2_id_full = next((node['id'] for node in nodes if node['id'].startswith(parent2_id_short)), None)
+                            if parent1_id_full and parent2_id_full:
+                                edges.append({"from": parent1_id_full, "to": child_id_full, "type": "child"})
+                                edges.append({"from": parent2_id_full, "to": child_id_full, "type": "child"})
+
+    output_data = {
+        "nodes": nodes,
+        "edges": edges
+    }
+
+    build_dir = Path(data_repo.working_dir) / 'build'
+    build_dir.mkdir(exist_ok=True)
+    output_path = build_dir / output_filename
+
+    try:
+        with open(output_path, 'w', encoding='utf-8') as f:
+            json.dump(output_data, f, indent=2, ensure_ascii=False)
+        print(f"Successfully exported data to {output_path}")
+        return True
+    except Exception as e:
+        print(f"Error writing JSON file: {e}")
+        return False
