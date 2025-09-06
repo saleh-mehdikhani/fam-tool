@@ -7,6 +7,22 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
+    <div id="control-panel">
+        <div class="control-group">
+            
+            <button id="zoom-in" title="Zoom In">+</button>
+            <button id="zoom-out" title="Zoom Out">-</button>
+            <button id="reset-zoom" title="Reset View">Reset</button>
+        </div>
+        <div class="control-group">
+            <span class="group-label">Search</span>
+            <input type="text" id="search-input" placeholder="Find by name...">
+            <button id="search-button">Go</button>
+            <button id="search-prev" title="Previous Match" style="display: none;">&lt;</button>
+            <span id="search-count" style="display: none;"></span>
+            <button id="search-next" title="Next Match" style="display: none;">&gt;</button>
+        </div>
+    </div>
     <div id="visualization-container"></div>
 
     <script src="https://d3js.org/d3.v7.min.js"></script>

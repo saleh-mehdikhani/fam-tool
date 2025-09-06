@@ -4,8 +4,6 @@ document.addEventListener('DOMContentLoaded', () => {
     console.log('[DEBUG] DOMContentLoaded event fired.');
 
     const container = document.getElementById('visualization-container');
-    console.log('[DEBUG] Container element:', container);
-
     if (!container) {
         console.error('Visualization container not found');
         return;
@@ -15,10 +13,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const height = container.clientHeight;
     console.log(`[DEBUG] Container dimensions: width=${width}, height=${height}`);
 
-    if (width === 0 || height === 0) {
-        console.error('[DEBUG] Container has zero width or height. The visualization will not be visible.');
-    }
-
     const svg = d3.select(container)
         .append('svg')
         .attr('width', width)
@@ -27,13 +21,15 @@ document.addEventListener('DOMContentLoaded', () => {
     const g = svg.append('g');
     console.log('[DEBUG] SVG and G elements created.');
 
-    svg.call(d3.zoom().on("zoom", (event) => {
-        g.attr('transform', event.transform);
-    }));
+    const zoom = d3.zoom()
+        .scaleExtent([0.1, 8])
+        .on("zoom", (event) => {
+            g.attr('transform', event.transform);
+        });
+    svg.call(zoom);
 
     const nodeSize = 32;
 
-    // Define a clip path for circular images, this is referenced later
     g.append('defs').append('clipPath')
         .attr('id', 'clip-circle')
         .append('circle')
@@ -44,24 +40,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const links = data.edges.map(d => ({ source: d.from, target: d.to, type: d.type }));
         const nodes = data.nodes;
-        console.log('[DEBUG] Nodes and links mapped for simulation.');
 
-        // --- HIERARCHY CALCULATION START ---
         function calculateGenerations(nodes, links) {
             const nodeMap = new Map(nodes.map(node => [node.id, node]));
-
-            // Initial setup: find roots (those who are not children) and set their generation to 0.
             const childIds = new Set(links.filter(l => l.type === 'child').map(l => l.to));
             nodes.forEach(node => {
                 node.generation = !childIds.has(node.id) ? 0 : -1;
             });
-
-            // Iteratively propagate generations until no more changes are made
             let changedInPass = true;
             while (changedInPass) {
                 changedInPass = false;
-
-                // Propagate generations to children
                 links.filter(l => l.type === 'child').forEach(link => {
                     const parent = nodeMap.get(link.from);
                     const child = nodeMap.get(link.to);
@@ -73,8 +61,6 @@ document.addEventListener('DOMContentLoaded', () => {
                         }
                     }
                 });
-
-                // Propagate generations to partners
                 links.filter(l => l.type === 'partner').forEach(link => {
                     const p1 = nodeMap.get(link.from);
                     const p2 = nodeMap.get(link.to);
@@ -89,108 +75,114 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 });
             }
-
             let maxGeneration = 0;
-            nodes.forEach(node => {
-                if (node.generation > maxGeneration) {
-                    maxGeneration = node.generation;
-                }
-            });
+            nodes.forEach(node => { if (node.generation > maxGeneration) maxGeneration = node.generation; });
             return maxGeneration;
         }
 
-        const maxGeneration = calculateGenerations(nodes, data.edges); // Use original edges for calculation
-        console.log('[DEBUG] Hierarchy calculated. Max generation:', maxGeneration);
+        const maxGeneration = calculateGenerations(nodes, data.edges);
         console.log("[DEBUG] Calculated Generations:", nodes.map(n => ({ name: n.name, gen: n.generation })));
 
-        const levelHeight = 180; // More vertical spacing
-
+        const levelHeight = 180;
         const simulation = d3.forceSimulation(nodes)
             .force("link", d3.forceLink(links).id(d => d.id).strength(0.4).distance(100))
-            .force("charge", d3.forceManyBody().strength(-600)) // Increased repulsion
-            .force("collide", d3.forceCollide(nodeSize + 10)) // Increased collision radius
+            .force("charge", d3.forceManyBody().strength(-600))
+            .force("collide", d3.forceCollide(nodeSize + 10))
             .force("x", d3.forceX(width / 2).strength(0.02))
             .force("y", d3.forceY(d => height - 100 - (d.generation * levelHeight)).strength(d => d.generation === -1 ? 0 : 1));
 
-        console.log('[DEBUG] Force simulation created with hierarchical forces.');
+        const link = g.append("g").attr("class", "links").selectAll("line").data(links).enter().append("line").attr("class", d => `link ${d.type}`);
+        const node = g.append("g").attr("class", "nodes").selectAll("g").data(nodes).enter().append("g").attr("class", "node").call(d3.drag().on("start", dragstarted).on("drag", dragged).on("end", dragended));
 
-        const link = g.append("g")
-            .attr("class", "links")
-            .selectAll("line")
-            .data(links)
-            .enter().append("line")
-            .attr("class", d => `link ${d.type}`);
-
-        const node = g.append("g")
-            .attr("class", "nodes")
-            .selectAll("g")
-            .data(nodes)
-            .enter().append("g")
-            .attr("class", "node")
-            .call(d3.drag()
-                .on("start", dragstarted)
-                .on("drag", dragged)
-                .on("end", dragended));
-
-        // Append either an image or a fallback circle
         node.each(function(d) {
             const group = d3.select(this);
             if (d.photo_path) {
-                group.append("image")
-                    .attr("xlink:href", d.photo_path)
-                    .attr("clip-path", "url(#clip-circle)")
-                    .attr("x", -nodeSize / 2)
-                    .attr("y", -nodeSize / 2)
-                    .attr("width", nodeSize)
-                    .attr("height", nodeSize);
+                group.append("image").attr("xlink:href", d.photo_path).attr("clip-path", "url(#clip-circle)").attr("x", -nodeSize / 2).attr("y", -nodeSize / 2).attr("width", nodeSize).attr("height", nodeSize);
             } else {
-                group.append("circle")
-                    .attr("r", nodeSize / 2)
-                    .attr("fill", "#ccc")
-                    .attr("stroke", "#fff")
-                    .attr("stroke-width", "1.5px");
+                group.append("circle").attr("r", nodeSize / 2).attr("fill", "#ccc").attr("stroke", "#fff").attr("stroke-width", "1.5px");
             }
         });
 
-        // Append text labels, positioned below the node
-        node.append("text")
-            .text(d => d.name)
-            .attr("y", (nodeSize / 2) + 14) // Adjust vertical position
-            .attr("class", "label");
+        node.append("text").text(d => d.name).attr("y", (nodeSize / 2) + 14).attr("class", "label");
 
-        console.log('[DEBUG] SVG nodes and links created.');
-
-        let tickCount = 0;
         simulation.on("tick", () => {
-            if (tickCount < 5) { // Log first 5 ticks
-                console.log(`[DEBUG] Simulation tick ${tickCount + 1}`);
-                tickCount++;
-            }
-            link
-                .attr("x1", d => d.source.x)
-                .attr("y1", d => d.source.y)
-                .attr("x2", d => d.target.x)
-                .attr("y2", d => d.target.y);
-
-            node
-                .attr("transform", d => `translate(${d.x},${d.y})`);
+            link.attr("x1", d => d.source.x).attr("y1", d => d.source.y).attr("x2", d => d.target.x).attr("y2", d => d.target.y);
+            node.attr("transform", d => `translate(${d.x},${d.y})`);
         });
 
-        function dragstarted(event, d) {
-            if (!event.active) simulation.alphaTarget(0.3).restart();
-            d.fx = d.x;
-            d.fy = d.y;
+        function dragstarted(event, d) { if (!event.active) simulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; }
+        function dragged(event, d) { d.fx = event.x; d.fy = event.y; }
+        function dragended(event, d) { if (!event.active) simulation.alphaTarget(0); d.fx = null; d.fy = null; }
+
+        // --- CONTROL PANEL LOGIC ---
+        let searchResults = [];
+        let currentSearchResultIndex = 0;
+
+        d3.select('#zoom-in').on('click', () => svg.transition().duration(250).call(zoom.scaleBy, 1.3));
+        d3.select('#zoom-out').on('click', () => svg.transition().duration(250).call(zoom.scaleBy, 1 / 1.3));
+        d3.select('#reset-zoom').on('click', () => svg.transition().duration(750).call(zoom.transform, d3.zoomIdentity));
+        
+        d3.select('#search-button').on('click', handleSearch);
+        d3.select('#search-input').on('keydown', (event) => { if (event.key === 'Enter') handleSearch(); });
+        d3.select('#search-next').on('click', () => navigateSearchResults(1));
+        d3.select('#search-prev').on('click', () => navigateSearchResults(-1));
+
+        function handleSearch() {
+            const searchTerm = d3.select('#search-input').property('value').toLowerCase();
+            node.classed('highlighted', false);
+
+            if (!searchTerm) {
+                searchResults = [];
+                updateSearchUI();
+                return;
+            }
+
+            searchResults = nodes.filter(d => d.name.toLowerCase().includes(searchTerm));
+            currentSearchResultIndex = 0;
+            
+            if (searchResults.length > 0) {
+                node.filter(d => searchResults.includes(d)).classed('highlighted', true);
+                focusOnSearchResult();
+            } else {
+                alert('No person found with that name.');
+            }
+            updateSearchUI();
         }
 
-        function dragged(event, d) {
-            d.fx = event.x;
-            d.fy = event.y;
+        function navigateSearchResults(direction) {
+            if (searchResults.length === 0) return;
+            currentSearchResultIndex += direction;
+            if (currentSearchResultIndex >= searchResults.length) {
+                currentSearchResultIndex = 0; // Wrap around to the start
+            }
+            if (currentSearchResultIndex < 0) {
+                currentSearchResultIndex = searchResults.length - 1; // Wrap around to the end
+            }
+            focusOnSearchResult();
         }
 
-        function dragended(event, d) {
-            if (!event.active) simulation.alphaTarget(0);
-            d.fx = null;
-            d.fy = null;
+        function focusOnSearchResult() {
+            const targetNode = searchResults[currentSearchResultIndex];
+            const transform = d3.zoomIdentity.translate(width / 2, height / 2).scale(1.5).translate(-targetNode.x, -targetNode.y);
+            svg.transition().duration(750).call(zoom.transform, transform);
+            updateSearchUI();
+        }
+
+        function updateSearchUI() {
+            const count = searchResults.length;
+            const countDisplay = d3.select('#search-count');
+            const prevButton = d3.select('#search-prev');
+            const nextButton = d3.select('#search-next');
+
+            if (count > 1) {
+                countDisplay.style('display', 'inline').text(`${currentSearchResultIndex + 1} of ${count}`);
+                prevButton.style('display', 'inline-block');
+                nextButton.style('display', 'inline-block');
+            } else {
+                countDisplay.style('display', 'none');
+                prevButton.style('display', 'none');
+                nextButton.style('display', 'none');
+            }
         }
 
     }).catch(error => {
