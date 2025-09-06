@@ -25,3 +25,14 @@ body {
     text-anchor: middle;
     alignment-baseline: middle;
 }
+
+/* Styles for specific link types */
+.link.partner {
+    stroke-dasharray: 4, 4; /* Creates a dashed line */
+    stroke: #888;
+}
+
+.link.child {
+    stroke-width: 1.5px;
+    stroke: #555;
+}

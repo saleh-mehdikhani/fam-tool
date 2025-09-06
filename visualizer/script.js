@@ -49,7 +49,7 @@ document.addEventListener('DOMContentLoaded', () => {
             .selectAll("line")
             .data(links)
             .enter().append("line")
-            .attr("class", "link");
+            .attr("class", d => `link ${d.type}`);
 
         const node = g.append("g")
             .attr("class", "nodes")
