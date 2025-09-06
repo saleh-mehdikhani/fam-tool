@@ -34,34 +34,34 @@
     { "from": "angelica", "to": "william", "type": "partner" },
     { "from": "thomas", "to": "susan", "type": "partner" },
 
-    { "from": "george", "to": "john", "type": "parent" },
-    { "from": "martha", "to": "john", "type": "parent" },
-    { "from": "george", "to": "eliza", "type": "parent" },
-    { "from": "martha", "to": "eliza", "type": "parent" },
-    { "from": "george", "to": "james_sr", "type": "parent" },
-    { "from": "martha", "to": "james_sr", "type": "parent" },
+    { "from": "george", "to": "john", "type": "child" },
+    { "from": "martha", "to": "john", "type": "child" },
+    { "from": "george", "to": "eliza", "type": "child" },
+    { "from": "martha", "to": "eliza", "type": "child" },
+    { "from": "george", "to": "james_sr", "type": "child" },
+    { "from": "martha", "to": "james_sr", "type": "child" },
 
-    { "from": "walter", "to": "thomas", "type": "parent" },
-    { "from": "anne", "to": "thomas", "type": "parent" },
+    { "from": "walter", "to": "thomas", "type": "child" },
+    { "from": "anne", "to": "thomas", "type": "child" },
 
-    { "from": "john", "to": "john_jr", "type": "parent" },
-    { "from": "abigail", "to": "john_jr", "type": "parent" },
-    { "from": "john", "to": "charles", "type": "parent" },
-    { "from": "abigail", "to": "charles", "type": "parent" },
+    { "from": "john", "to": "john_jr", "type": "child" },
+    { "from": "abigail", "to": "john_jr", "type": "child" },
+    { "from": "john", "to": "charles", "type": "child" },
+    { "from": "abigail", "to": "charles", "type": "child" },
 
-    { "from": "eliza", "to": "philip", "type": "parent" },
-    { "from": "alexander", "to": "philip", "type": "parent" },
-    { "from": "eliza", "to": "angelica", "type": "parent" },
-    { "from": "alexander", "to": "angelica", "type": "parent" },
-    { "from": "eliza", "to": "james_jr", "type": "parent" },
-    { "from": "alexander", "to": "james_jr", "type": "parent" },
+    { "from": "eliza", "to": "philip", "type": "child" },
+    { "from": "alexander", "to": "philip", "type": "child" },
+    { "from": "eliza", "to": "angelica", "type": "child" },
+    { "from": "alexander", "to": "angelica", "type": "child" },
+    { "from": "eliza", "to": "james_jr", "type": "child" },
+    { "from": "alexander", "to": "james_jr", "type": "child" },
 
-    { "from": "john_jr", "to": "mary", "type": "parent" },
-    { "from": "sarah", "to": "mary", "type": "parent" },
+    { "from": "john_jr", "to": "mary", "type": "child" },
+    { "from": "sarah", "to": "mary", "type": "child" },
 
-    { "from": "angelica", "to": "elizabeth", "type": "parent" },
-    { "from": "william", "to": "elizabeth", "type": "parent" },
-    { "from": "angelica", "to": "robert", "type": "parent" },
-    { "from": "william", "to": "robert", "type": "parent" }
+    { "from": "angelica", "to": "elizabeth", "type": "child" },
+    { "from": "william", "to": "elizabeth", "type": "child" },
+    { "from": "angelica", "to": "robert", "type": "child" },
+    { "from": "william", "to": "robert", "type": "child" }
   ]
 }
