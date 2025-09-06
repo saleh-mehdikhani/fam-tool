@@ -31,6 +31,14 @@ document.addEventListener('DOMContentLoaded', () => {
         g.attr('transform', event.transform);
     }));
 
+    const nodeSize = 32;
+
+    // Define a clip path for circular images, this is referenced later
+    g.append('defs').append('clipPath')
+        .attr('id', 'clip-circle')
+        .append('circle')
+        .attr('r', nodeSize / 2);
+
     d3.json('data.json').then(data => {
         console.log('[DEBUG] data.json loaded successfully:', data);
 
@@ -39,8 +47,8 @@ document.addEventListener('DOMContentLoaded', () => {
         console.log('[DEBUG] Nodes and links mapped for simulation.');
 
         const simulation = d3.forceSimulation(nodes)
-            .force("link", d3.forceLink(links).id(d => d.id).distance(100))
-            .force("charge", d3.forceManyBody().strength(-150))
+            .force("link", d3.forceLink(links).id(d => d.id).distance(120)) // Increased distance for larger nodes
+            .force("charge", d3.forceManyBody().strength(-200))
             .force("center", d3.forceCenter(width / 2, height / 2));
         console.log('[DEBUG] Force simulation created.');
 
@@ -62,15 +70,32 @@ document.addEventListener('DOMContentLoaded', () => {
                 .on("drag", dragged)
                 .on("end", dragended));
 
-        node.append("circle")
-            .attr("r", 10)
-            .attr("fill", "#69b3a2");
+        // Append either an image or a fallback circle
+        node.each(function(d) {
+            const group = d3.select(this);
+            if (d.photo_path) {
+                group.append("image")
+                    .attr("xlink:href", d.photo_path)
+                    .attr("clip-path", "url(#clip-circle)")
+                    .attr("x", -nodeSize / 2)
+                    .attr("y", -nodeSize / 2)
+                    .attr("width", nodeSize)
+                    .attr("height", nodeSize);
+            } else {
+                group.append("circle")
+                    .attr("r", nodeSize / 2)
+                    .attr("fill", "#ccc")
+                    .attr("stroke", "#fff")
+                    .attr("stroke-width", "1.5px");
+            }
+        });
 
+        // Append text labels, positioned below the node
         node.append("text")
             .text(d => d.name)
-            .attr("x", 12)
-            .attr("y", 3)
+            .attr("y", (nodeSize / 2) + 14) // Adjust vertical position
             .attr("class", "label");
+
         console.log('[DEBUG] SVG nodes and links created.');
 
         let tickCount = 0;
