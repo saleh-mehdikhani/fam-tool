@@ -46,11 +46,73 @@ document.addEventListener('DOMContentLoaded', () => {
         const nodes = data.nodes;
         console.log('[DEBUG] Nodes and links mapped for simulation.');
 
+        // --- HIERARCHY CALCULATION START ---
+        function calculateGenerations(nodes, links) {
+            const nodeMap = new Map(nodes.map(node => [node.id, node]));
+
+            // Initial setup: find roots (those who are not children) and set their generation to 0.
+            const childIds = new Set(links.filter(l => l.type === 'child').map(l => l.to));
+            nodes.forEach(node => {
+                node.generation = !childIds.has(node.id) ? 0 : -1;
+            });
+
+            // Iteratively propagate generations until no more changes are made
+            let changedInPass = true;
+            while (changedInPass) {
+                changedInPass = false;
+
+                // Propagate generations to children
+                links.filter(l => l.type === 'child').forEach(link => {
+                    const parent = nodeMap.get(link.from);
+                    const child = nodeMap.get(link.to);
+                    if (parent && child && parent.generation !== -1) {
+                        const newGen = parent.generation + 1;
+                        if (child.generation === -1 || newGen > child.generation) {
+                            child.generation = newGen;
+                            changedInPass = true;
+                        }
+                    }
+                });
+
+                // Propagate generations to partners
+                links.filter(l => l.type === 'partner').forEach(link => {
+                    const p1 = nodeMap.get(link.from);
+                    const p2 = nodeMap.get(link.to);
+                    if (p1 && p2) {
+                        if (p1.generation !== -1 && p2.generation !== p1.generation) {
+                            p2.generation = p1.generation;
+                            changedInPass = true;
+                        } else if (p2.generation !== -1 && p1.generation !== p2.generation) {
+                            p1.generation = p2.generation;
+                            changedInPass = true;
+                        }
+                    }
+                });
+            }
+
+            let maxGeneration = 0;
+            nodes.forEach(node => {
+                if (node.generation > maxGeneration) {
+                    maxGeneration = node.generation;
+                }
+            });
+            return maxGeneration;
+        }
+
+        const maxGeneration = calculateGenerations(nodes, data.edges); // Use original edges for calculation
+        console.log('[DEBUG] Hierarchy calculated. Max generation:', maxGeneration);
+        console.log("[DEBUG] Calculated Generations:", nodes.map(n => ({ name: n.name, gen: n.generation })));
+
+        const levelHeight = 180; // More vertical spacing
+
         const simulation = d3.forceSimulation(nodes)
-            .force("link", d3.forceLink(links).id(d => d.id).distance(120)) // Increased distance for larger nodes
-            .force("charge", d3.forceManyBody().strength(-200))
-            .force("center", d3.forceCenter(width / 2, height / 2));
-        console.log('[DEBUG] Force simulation created.');
+            .force("link", d3.forceLink(links).id(d => d.id).strength(0.4).distance(100))
+            .force("charge", d3.forceManyBody().strength(-600)) // Increased repulsion
+            .force("collide", d3.forceCollide(nodeSize + 10)) // Increased collision radius
+            .force("x", d3.forceX(width / 2).strength(0.02))
+            .force("y", d3.forceY(d => height - 100 - (d.generation * levelHeight)).strength(d => d.generation === -1 ? 0 : 1));
+
+        console.log('[DEBUG] Force simulation created with hierarchical forces.');
 
         const link = g.append("g")
             .attr("class", "links")
