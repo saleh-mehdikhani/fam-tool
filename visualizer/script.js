@@ -118,9 +118,22 @@ document.addEventListener('DOMContentLoaded', () => {
         let searchResults = [];
         let currentSearchResultIndex = 0;
 
+        function resetView() {
+            const bounds = g.node().getBBox();
+            const fullWidth = bounds.width;
+            const fullHeight = bounds.height;
+            const midX = bounds.x + fullWidth / 2;
+            const midY = bounds.y + fullHeight / 2;
+            if (fullWidth === 0 || fullHeight === 0) return; // nothing to fit
+            const scale = 0.9 / Math.max(fullWidth / width, fullHeight / height);
+            const translate = [width / 2 - scale * midX, height / 2 - scale * midY];
+            const transform = d3.zoomIdentity.translate(translate[0], translate[1]).scale(scale);
+            svg.transition().duration(750).call(zoom.transform, transform);
+        }
+
         d3.select('#zoom-in').on('click', () => svg.transition().duration(250).call(zoom.scaleBy, 1.3));
         d3.select('#zoom-out').on('click', () => svg.transition().duration(250).call(zoom.scaleBy, 1 / 1.3));
-        d3.select('#reset-zoom').on('click', () => svg.transition().duration(750).call(zoom.transform, d3.zoomIdentity));
+        d3.select('#reset-zoom').on('click', resetView);
         
         d3.select('#search-button').on('click', handleSearch);
         d3.select('#search-input').on('keydown', (event) => { if (event.key === 'Enter') handleSearch(); });
@@ -184,6 +197,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 nextButton.style('display', 'none');
             }
         }
+
+        // Set the initial view
+        setTimeout(resetView, 1500);
 
     }).catch(error => {
         console.error('[DEBUG] Critical error loading or processing data.json:', error);
