@@ -1,0 +1,67 @@
+{
+  "nodes": [
+    { "id": "george", "name": "George (Gen 1)" },
+    { "id": "martha", "name": "Martha (Gen 1)" },
+    { "id": "walter", "name": "Walter (Gen 1 Bro)" },
+    { "id": "anne", "name": "Anne (Gen 1)" },
+
+    { "id": "john", "name": "John (Gen 2)" },
+    { "id": "abigail", "name": "Abigail (Gen 2)" },
+    { "id": "eliza", "name": "Eliza (Gen 2)" },
+    { "id": "alexander", "name": "Alexander (Gen 2)" },
+    { "id": "james_sr", "name": "James Sr (Gen 2)" },
+    { "id": "thomas", "name": "Thomas (Gen 2 Cousin)" },
+    { "id": "susan", "name": "Susan (Gen 2)" },
+
+    { "id": "john_jr", "name": "John Jr (Gen 3)" },
+    { "id": "sarah", "name": "Sarah (Gen 3)" },
+    { "id": "charles", "name": "Charles (Gen 3)" },
+    { "id": "philip", "name": "Philip (Gen 3)" },
+    { "id": "angelica", "name": "Angelica (Gen 3)" },
+    { "id": "william", "name": "William (Gen 3)" },
+    { "id": "james_jr", "name": "James Jr (Gen 3)" },
+
+    { "id": "mary", "name": "Mary (Gen 4)" },
+    { "id": "elizabeth", "name": "Elizabeth (Gen 4)" },
+    { "id": "robert", "name": "Robert (Gen 4)" }
+  ],
+  "edges": [
+    { "from": "george", "to": "martha", "type": "partner" },
+    { "from": "walter", "to": "anne", "type": "partner" },
+    { "from": "john", "to": "abigail", "type": "partner" },
+    { "from": "eliza", "to": "alexander", "type": "partner" },
+    { "from": "john_jr", "to": "sarah", "type": "partner" },
+    { "from": "angelica", "to": "william", "type": "partner" },
+    { "from": "thomas", "to": "susan", "type": "partner" },
+
+    { "from": "george", "to": "john", "type": "parent" },
+    { "from": "martha", "to": "john", "type": "parent" },
+    { "from": "george", "to": "eliza", "type": "parent" },
+    { "from": "martha", "to": "eliza", "type": "parent" },
+    { "from": "george", "to": "james_sr", "type": "parent" },
+    { "from": "martha", "to": "james_sr", "type": "parent" },
+
+    { "from": "walter", "to": "thomas", "type": "parent" },
+    { "from": "anne", "to": "thomas", "type": "parent" },
+
+    { "from": "john", "to": "john_jr", "type": "parent" },
+    { "from": "abigail", "to": "john_jr", "type": "parent" },
+    { "from": "john", "to": "charles", "type": "parent" },
+    { "from": "abigail", "to": "charles", "type": "parent" },
+
+    { "from": "eliza", "to": "philip", "type": "parent" },
+    { "from": "alexander", "to": "philip", "type": "parent" },
+    { "from": "eliza", "to": "angelica", "type": "parent" },
+    { "from": "alexander", "to": "angelica", "type": "parent" },
+    { "from": "eliza", "to": "james_jr", "type": "parent" },
+    { "from": "alexander", "to": "james_jr", "type": "parent" },
+
+    { "from": "john_jr", "to": "mary", "type": "parent" },
+    { "from": "sarah", "to": "mary", "type": "parent" },
+
+    { "from": "angelica", "to": "elizabeth", "type": "parent" },
+    { "from": "william", "to": "elizabeth", "type": "parent" },
+    { "from": "angelica", "to": "robert", "type": "parent" },
+    { "from": "william", "to": "robert", "type": "parent" }
+  ]
+}

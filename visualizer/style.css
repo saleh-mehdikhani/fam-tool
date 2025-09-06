@@ -1,0 +1,27 @@
+body {
+    margin: 0;
+    font-family: sans-serif;
+    background-color: #f0f0f0;
+}
+
+#visualization-container {
+    width: 100vw;
+    height: 100vh;
+}
+
+.node circle {
+    stroke: #fff;
+    stroke-width: 1.5px;
+}
+
+.link {
+    stroke: #999;
+    stroke-opacity: 0.6;
+}
+
+.label {
+    font-size: 12px;
+    pointer-events: none; /* Prevents text from interfering with mouse events on nodes */
+    text-anchor: middle;
+    alignment-baseline: middle;
+}
