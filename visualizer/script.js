@@ -41,47 +41,14 @@ document.addEventListener('DOMContentLoaded', () => {
         const links = data.edges.map(d => ({ source: d.from, target: d.to, type: d.type }));
         const nodes = data.nodes;
 
-        function calculateGenerations(nodes, links) {
-            const nodeMap = new Map(nodes.map(node => [node.id, node]));
-            const childIds = new Set(links.filter(l => l.type === 'child').map(l => l.to));
-            nodes.forEach(node => {
-                node.generation = !childIds.has(node.id) ? 0 : -1;
-            });
-            let changedInPass = true;
-            while (changedInPass) {
-                changedInPass = false;
-                links.filter(l => l.type === 'child').forEach(link => {
-                    const parent = nodeMap.get(link.from);
-                    const child = nodeMap.get(link.to);
-                    if (parent && child && parent.generation !== -1) {
-                        const newGen = parent.generation + 1;
-                        if (child.generation === -1 || newGen > child.generation) {
-                            child.generation = newGen;
-                            changedInPass = true;
-                        }
-                    }
-                });
-                links.filter(l => l.type === 'partner').forEach(link => {
-                    const p1 = nodeMap.get(link.from);
-                    const p2 = nodeMap.get(link.to);
-                    if (p1 && p2) {
-                        if (p1.generation !== -1 && p2.generation !== p1.generation) {
-                            p2.generation = p1.generation;
-                            changedInPass = true;
-                        } else if (p2.generation !== -1 && p1.generation !== p2.generation) {
-                            p1.generation = p2.generation;
-                            changedInPass = true;
-                        }
-                    }
-                });
+        // Find maxGeneration from pre-calculated data
+        let maxGeneration = 0;
+        nodes.forEach(node => {
+            if (node.generation > maxGeneration) {
+                maxGeneration = node.generation;
             }
-            let maxGeneration = 0;
-            nodes.forEach(node => { if (node.generation > maxGeneration) maxGeneration = node.generation; });
-            return maxGeneration;
-        }
-
-        const maxGeneration = calculateGenerations(nodes, data.edges);
-        console.log("[DEBUG] Calculated Generations:", nodes.map(n => ({ name: n.name, gen: n.generation })));
+        });
+        console.log("[DEBUG] Max Generation from data:", maxGeneration);
 
         const levelHeight = 180;
         const simulation = d3.forceSimulation(nodes)
