@@ -298,6 +298,43 @@ def add_child(father_id, mother_id, child_id):
     print(f"Successfully added {child_id} as a child of {father_id} and {mother_id}.")
     return True
 
+def _calculate_generations(nodes, edges):
+    node_map = {node['id']: node for node in nodes}
+
+    # Initial setup: find roots (those who are not children) and set their generation to 0.
+    child_ids = set(edge['to'] for edge in edges if edge['type'] == 'child')
+    for node in nodes:
+        node['generation'] = 0 if node['id'] not in child_ids else -1
+
+    # Iteratively propagate generations until no more changes are made
+    changed_in_pass = True
+    while changed_in_pass:
+        changed_in_pass = False
+
+        # Pass 1: Propagate generations to children
+        for edge in edges:
+            if edge['type'] == 'child':
+                parent = node_map.get(edge['from'])
+                child = node_map.get(edge['to'])
+                if parent and child and parent['generation'] != -1:
+                    new_gen = parent['generation'] + 1
+                    if child['generation'] == -1 or new_gen > child['generation']:
+                        child['generation'] = new_gen
+                        changed_in_pass = True
+
+        # Pass 2: Propagate generations to partners
+        for edge in edges:
+            if edge['type'] == 'partner':
+                p1 = node_map.get(edge['from'])
+                p2 = node_map.get(edge['to'])
+                if p1 and p2:
+                    if p1['generation'] != -1 and p2['generation'] != p1['generation']:
+                        p2['generation'] = p1['generation']
+                        changed_in_pass = True
+                    elif p2['generation'] != -1 and p1['generation'] != p2['generation']:
+                        p1['generation'] = p2['generation']
+                        changed_in_pass = True
+
 def export_to_json(output_filename):
     data_repo, graph_repo = find_repos()
     if not data_repo or not graph_repo:
@@ -363,6 +400,9 @@ def export_to_json(output_filename):
                             if parent1_id_full and parent2_id_full:
                                 edges.append({"from": parent1_id_full, "to": child_id_full, "type": "child"})
                                 edges.append({"from": parent2_id_full, "to": child_id_full, "type": "child"})
+
+    # --- Call the generation calculation function ---
+    _calculate_generations(nodes, edges)
 
     output_data = {
         "nodes": nodes,
