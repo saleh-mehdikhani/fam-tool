@@ -55,7 +55,7 @@ def initialize_project(root_path_str):
         # Add a .gitkeep to the empty directory so git tracks it
         (root_path / 'people' / '.gitkeep').touch()
 
-        data_repo.index.add([submodule.path, '.gitmodules', 'people/.gitkeep'])
+        data_repo.index.add(['.gitmodules', 'people/.gitkeep'])
         data_repo.index.commit("Initial commit: Add family_graph submodule and people directory")
         print("Created initial commit.")
 
@@ -67,6 +67,106 @@ def initialize_project(root_path_str):
     
     print(f"Successfully created new family tree project at {root_path}")
     return True
+
+def initialize_remotes(data_remote, graph_remote):
+    """Sets the remote URLs for the data and graph repositories."""
+    data_repo, graph_repo = find_repos()
+    if not data_repo or not graph_repo:
+        print("Error: Must be run from within a valid data repository with a 'family_graph' submodule.")
+        return False
+
+    try:
+        if 'origin' in data_repo.remotes:
+            data_repo.delete_remote('origin')
+        data_repo.create_remote('origin', data_remote)
+
+        submodule = data_repo.submodule('family_graph')
+        with data_repo.config_writer() as writer:
+            writer.set_value(f'submodule "{submodule.name}"', "url", graph_remote)
+        
+        data_repo.index.add(['.gitmodules'])
+        if data_repo.is_dirty():
+            data_repo.index.commit("Update submodule URL")
+
+        if 'origin' in graph_repo.remotes:
+            graph_repo.delete_remote('origin')
+        graph_repo.create_remote('origin', graph_remote)
+
+        return True
+    except git.GitCommandError as e:
+        print(f"Error setting remote URLs: {e}")
+        return False
+
+def push_to_remote(force=False):
+    """Pushes changes to the remote repositories after checking for conflicts."""
+    data_repo, graph_repo = find_repos()
+    if not data_repo or not graph_repo:
+        print("Error: Must be run from within a valid data repository with a 'family_graph' submodule.")
+        return False
+
+    try:
+        for repo, name in [(data_repo, "data"), (graph_repo, "graph")]:
+            if not force and repo.is_dirty(untracked_files=True):
+                print(f"Error: Uncommitted changes found in {name} repository. Please commit or stash them before pushing.")
+                return False
+
+            if not repo.remotes:
+                print(f"Error: No remote repository configured for {name} repository.")
+                return False
+
+            origin = repo.remotes.origin
+            
+            if not force:
+                try:
+                    remote_branches = repo.git.ls_remote('--heads', 'origin')
+                except git.GitCommandError as e:
+                    if "Could not read from remote repository" in str(e):
+                        print(f"Error: Could not read from remote repository for {name} repo. Please check the URL and your permissions.")
+                        return False
+                    else:
+                        raise e
+
+                if remote_branches:
+                    origin.fetch()
+                    for branch in repo.branches:
+                        remote_branch_name = f"origin/{branch.name}"
+                        if remote_branch_name in origin.refs:
+                            remote_branch = origin.refs[branch.name]
+                            if branch.commit != remote_branch.commit:
+                                if repo.is_ancestor(branch.commit, remote_branch.commit):
+                                    print(f"Error: Local {name} repository branch '{branch.name}' is behind the remote. Please pull the changes before pushing.")
+                                    return False
+                                elif not repo.is_ancestor(remote_branch.commit, branch.commit):
+                                    print(f"Error: {name} repository branch '{branch.name}' has diverged from the remote. Please resolve the conflicts before pushing.")
+                                    return False
+
+        # If all checks pass, push all branches and tags for both repositories
+        print(f"Pushing all branches and tags for data repository...")
+        try:
+            data_repo.git.push("--all", "origin", "--force" if force else None)
+            data_repo.git.push("--tags", "origin", "--force" if force else None)
+        except git.GitCommandError as e:
+            if "duplicateEntries" in str(e.stderr):
+                print("Error: The data repository is corrupt. Please run 'git fsck --full' to diagnose the problem.")
+                return False
+            else:
+                raise e
+
+        print("Pushing all branches and tags for graph repository...")
+        try:
+            graph_repo.git.push("--all", "origin", "--force" if force else None)
+            graph_repo.git.push("--tags", "origin", "--force" if force else None)
+        except git.GitCommandError as e:
+            if "duplicateEntries" in str(e.stderr):
+                print("Error: The graph repository is corrupt. Please run 'git fsck --full' to diagnose the problem.")
+                return False
+            else:
+                raise e
+
+        return True
+    except (git.GitCommandError, IndexError) as e:
+        print(f"Error during push: {e}")
+        return False
 
 # --- Core Logic ---
 

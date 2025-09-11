@@ -88,5 +88,29 @@ def export(output):
     else:
         click.secho("Failed to export family tree.", fg='red')
 
+@cli.command('set-remote')
+@click.option('-d', '--data', 'data_remote', required=True, help='The remote URL for the data repository.')
+@click.option('-g', '--graph', 'graph_remote', required=True, help='The remote URL for the graph repository.')
+def set_remote(data_remote, graph_remote):
+    """Sets the remote URLs for the data and graph repositories."""
+    click.echo(f"Setting remote for data repository to: {data_remote}")
+    click.echo(f"Setting remote for graph repository to: {graph_remote}")
+    success = main.initialize_remotes(data_remote, graph_remote)
+    if success:
+        click.secho("Successfully set remote URLs!", fg='green')
+    else:
+        click.secho("Failed to set remote URLs.", fg='red')
+
+@cli.command('push-remote')
+@click.option('-f', '--force', is_flag=True, help='Force push to the remote repository.')
+def push_remote(force):
+    """Pushes changes to the remote repositories."""
+    click.echo("Pushing changes to remote repositories...")
+    success = main.push_to_remote(force)
+    if success:
+        click.secho("Successfully pushed changes!", fg='green')
+    else:
+        click.secho("Failed to push changes.", fg='red')
+
 if __name__ == '__main__':
     cli()
