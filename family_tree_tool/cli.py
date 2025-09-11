@@ -11,20 +11,25 @@ def cli():
 
 @cli.command('init')
 @click.argument('root_path', type=click.Path())
-@click.option('--force', is_flag=True, help='Overwrite the target directory if it exists.')
-def init(root_path, force):
+def init(root_path):
     """Initializes a new family tree project at the specified path."""
     target_path = Path(root_path)
-    if target_path.exists() and os.listdir(target_path):
-        if force:
-            click.echo(f"--force flag set. Removing existing directory: {target_path}")
-        else:
-            if not click.confirm(f"Directory '{target_path}' is not empty. Do you want to remove it and start over?"):
-                click.echo("Aborting.")
-                return
-    
+    if target_path.exists():
+        if not target_path.is_dir():
+            click.secho(f"Error: Target path '{root_path}' exists and is not a directory.", fg='red')
+            return
+        if os.listdir(target_path):
+            click.secho(f"Error: Target directory '{root_path}' is not empty.", fg='red')
+            return
+    else:
+        try:
+            target_path.mkdir(parents=True, exist_ok=False)
+        except OSError as e:
+            click.secho(f"Error creating directory '{root_path}': {e}", fg='red')
+            return
+
     click.echo(f"Initializing new project at: {root_path}")
-    success = main.initialize_project(root_path, force=True) # Pass force=True after confirmation
+    success = main.initialize_project(root_path)
     if success:
         click.secho("Successfully initialized project!", fg='green')
     else:

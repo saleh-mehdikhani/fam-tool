@@ -24,36 +24,22 @@ def find_repos():
         # This will catch if the current dir is not a git repo, or the submodule is missing.
         return None, None
 
-def initialize_project(root_path_str, force=False):
+def initialize_project(root_path_str):
     """Creates a new family tree project at the specified path."""
     # Resolve path first to enable reliable comparison
     root_path = Path(root_path_str).resolve()
 
-    # Safeguard against deleting CWD. This is the key check.
-    if force and root_path.exists() and root_path == Path.cwd().resolve():
-        print("Error: Cannot overwrite the current working directory.")
-        return False
-
     graph_source_path = root_path.with_name(root_path.name + "_graph_source")
-
-    if force:
-        if root_path.exists():
-            shutil.rmtree(root_path)
-        if graph_source_path.exists():
-            shutil.rmtree(graph_source_path)
-    elif root_path.exists() or graph_source_path.exists():
-        print(f"Error: Target directory '{root_path}' or '{graph_source_path}' already exists. Use --force to overwrite.")
-        return False
 
     try:
         # 1. Create and initialize the source graph repo
-        graph_source_repo = git.Repo.init(graph_source_path)
+        graph_source_repo = git.Repo.init(graph_source_path, initial_branch='main')
         graph_source_repo.git.commit('--allow-empty', '-m', "Graph Root")
         graph_source_repo.create_tag("GRAPH_ROOT", message="Graph entry point")
         print(f"Initialized graph source at: {graph_source_path}")
 
         # 2. Initialize the main data repo
-        data_repo = git.Repo.init(root_path)
+        data_repo = git.Repo.init(root_path, initial_branch='main')
         print(f"Initialized data repo at: {root_path}")
 
         # 3. Add the graph repo as a submodule
