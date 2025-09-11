@@ -37,7 +37,7 @@ def init(root_path):
 
 
 @cli.command('add')
-@click.option('-fn', '--first-name', required=True, help='The person\'s first name.')
+@click.option('-f', '--first-name', required=True, help='The person\'s first name.')
 @click.option('-l', '--last-name', required=True, help='The person\'s last name.')
 @click.option('-mn', '--middle-name', help='The person\'s middle name.')
 @click.option('-b', '--birth-date', help='Birth date in YYYY-MM-DD format.')
