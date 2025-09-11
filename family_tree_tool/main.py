@@ -38,6 +38,10 @@ def initialize_project(root_path_str):
         readme_graph_path = Path(__file__).parent / "resources" / "README_graph.md"
         (graph_source_path / 'README.md').write_text(readme_graph_path.read_text())
         graph_source_repo.index.add(['README.md'])
+        # Add .gitignore to graph_source_repo from resource file
+        gitignore_template_path = Path(__file__).parent / "resources" / "gitignore_template"
+        (graph_source_path / '.gitignore').write_text(gitignore_template_path.read_text())
+        graph_source_repo.index.add(['.gitignore'])
         graph_source_repo.git.commit('--allow-empty', '-m', "Graph Root")
         graph_source_repo.create_tag("GRAPH_ROOT", message="Graph entry point")
         print(f"Initialized graph source at: {graph_source_path}")
@@ -48,6 +52,10 @@ def initialize_project(root_path_str):
         readme_data_path = Path(__file__).parent / "resources" / "README_data.md"
         (root_path / 'README.md').write_text(readme_data_path.read_text())
         data_repo.index.add(['README.md'])
+        # Add .gitignore to data_repo from resource file
+        gitignore_template_path = Path(__file__).parent / "resources" / "gitignore_template"
+        (root_path / '.gitignore').write_text(gitignore_template_path.read_text())
+        data_repo.index.add(['.gitignore'])
         print(f"Initialized data repo at: {root_path}")
 
         # 3. Add the graph repo as a submodule
