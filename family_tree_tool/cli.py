@@ -53,8 +53,8 @@ def add(first_name, last_name, middle_name, birth_date, gender, nickname):
         click.secho("Failed to add person.", fg='red')
 
 @cli.command('marry')
-@click.option('--male', 'male_id', required=True, help="The male's person ID.")
-@click.option('--female', 'female_id', required=True, help="The female's person ID.")
+@click.option('-m', '--male', 'male_id', required=True, help="The male's person ID.")
+@click.option('-f', '--female', 'female_id', required=True, help="The female's person ID.")
 def marry(male_id, female_id):
     """Creates a marriage event between two people."""
     click.echo(f"Marrying {male_id} and {female_id}...")
