@@ -185,6 +185,35 @@ def push_to_remote(force=False):
         print(f"Error during push: {e}")
         return False
 
+def display_graph_log():
+    """Displays the Git graph log of the graph repository."""
+    data_repo, graph_repo = find_repos()
+    if not data_repo or not graph_repo:
+        print("Error: Must be run from within a valid data repository with a 'family_graph' submodule.")
+        return False
+
+    try:
+        # Change directory to the graph repo's working directory
+        original_cwd = os.getcwd()
+        os.chdir(graph_repo.working_dir)
+
+        # Run the git log command
+        result = subprocess.run(
+            ['git', 'log', '--graph', '--oneline', '--decorate', '--all', '--color'],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        print(result.stdout)
+        return True
+    except subprocess.CalledProcessError as e:
+        print(f"Error running git log: {e}")
+        print(f"Stderr: {e.stderr}")
+        return False
+    finally:
+        # Change back to the original directory
+        os.chdir(original_cwd)
+
 # --- Core Logic ---
 
 def add_person(first_name, last_name, middle_name, birth_date, gender, nickname, father_id=None, mother_id=None):

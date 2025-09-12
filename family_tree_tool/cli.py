@@ -115,5 +115,15 @@ def push_remote(force):
     else:
         click.secho("Failed to push changes.", fg='red')
 
+@cli.command('graph')
+def graph():
+    """Displays the Git graph log of the graph repository."""
+    click.echo("Displaying graph repository log...")
+    success = main.display_graph_log()
+    if success:
+        click.secho("Graph log displayed successfully!", fg='green')
+    else:
+        click.secho("Failed to display graph log.", fg='red')
+
 if __name__ == '__main__':
     cli()
