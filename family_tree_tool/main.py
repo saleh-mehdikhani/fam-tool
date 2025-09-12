@@ -6,6 +6,7 @@ import git
 import subprocess
 import json
 import shutil
+import click
 
 # --- Repository Discovery ---
 
@@ -186,7 +187,7 @@ def push_to_remote(force=False):
 
 # --- Core Logic ---
 
-def add_person(first_name, last_name, middle_name, birth_date, gender, nickname):
+def add_person(first_name, last_name, middle_name, birth_date, gender, nickname, father_id=None, mother_id=None):
     """
     Orchestrates creating a new person across both the data and graph repositories.
     """
@@ -203,8 +204,35 @@ def add_person(first_name, last_name, middle_name, birth_date, gender, nickname)
 
     # 2. Create graph commit containing a reference to the person's data file
     try:
-        graph_root_commit = graph_repo.tags['GRAPH_ROOT'].commit
-        graph_repo.head.reference = graph_root_commit
+        parent_commit = None
+        if father_id and mother_id:
+            marriage_commit = _find_marriage_commit(graph_repo, father_id, mother_id)
+            if not marriage_commit:
+                father_details = _get_person_name_by_id(data_repo, father_id)
+                mother_details = _get_person_name_by_id(data_repo, mother_id)
+                print(f"Marriage between {father_details['first_name']} {father_details['last_name']} ({father_id}) and {mother_details['first_name']} {mother_details['last_name']} ({mother_id}) not found.")
+                if click.confirm(f"Do you want to create a marriage between {father_details['first_name']} {father_details['last_name']} and {mother_details['first_name']} {mother_details['last_name']} now?"):
+                    if not marry(father_id, mother_id):
+                        print("Error: Failed to create marriage.")
+                        return False
+                    # After marry, the tag should exist, so we can find the commit
+                    marriage_commit = _find_marriage_commit(graph_repo, father_id, mother_id)
+                    if not marriage_commit: # Should not happen if marry was successful
+                        print("Error: Marriage was created but commit could not be found.")
+                        return False
+                    parent_commit = marriage_commit
+                    print(f"Found marriage commit: {marriage_commit.hexsha}")
+                else:
+                    print("Operation aborted by user.")
+                    return False
+            else:
+                parent_commit = marriage_commit
+                print(f"Found marriage commit: {marriage_commit.hexsha}")
+        else:
+            graph_root_commit = graph_repo.tags['GRAPH_ROOT'].commit
+            parent_commit = graph_root_commit
+
+        graph_repo.head.reference = parent_commit
         graph_repo.head.reset(index=True, working_tree=True)
 
         # Create an empty commit with the person's info in the message
@@ -307,6 +335,31 @@ def _find_person_commit_by_id(repo, person_id):
         print(f"Error: Could not find person with ID '{person_id}'.")
         return None
 
+def _find_marriage_commit(repo, id1, id2):
+    """Finds a marriage commit by two person IDs."""
+    marriage_tag_name1 = f"marriage_{id1[:8]}_{id2[:8]}"
+    marriage_tag_name2 = f"marriage_{id2[:8]}_{id1[:8]}"
+    
+    if marriage_tag_name1 in repo.tags:
+        return repo.tags[marriage_tag_name1].commit
+    elif marriage_tag_name2 in repo.tags:
+        return repo.tags[marriage_tag_name2].commit
+    return None
+
+def _get_person_name_by_id(data_repo, person_id):
+    """Retrieves a person's name details (first, last, full) from their YAML file."""
+    people_dir = Path(data_repo.working_dir) / 'people'
+    for person_file in people_dir.glob(f"{person_id[:8]}*.yml"):
+        with open(person_file, 'r', encoding='utf-8') as f:
+            person_data = yaml.safe_load(f)
+            if person_data.get('id') == person_id:
+                return {
+                    'first_name': person_data.get('first_name', ''),
+                    'last_name': person_data.get('last_name', ''),
+                    'name': person_data.get('name', person_id)
+                }
+    return {'first_name': person_id, 'last_name': '', 'name': person_id} # Return ID if person file not found
+
 def _make_child_rewrite_permanent(graph_repo, child_commit, marriage_commit):
     original_cwd = os.getcwd()
     os.chdir(graph_repo.working_dir)
@@ -355,26 +408,27 @@ def add_child(father_id, mother_id, child_id):
         return False
 
     # 2. Find or create the marriage.
-    marriage_tag_name = f"marriage_{father_id[:8]}_{mother_id[:8]}"
-    reverse_marriage_tag_name = f"marriage_{mother_id[:8]}_{father_id[:8]}"
-    marriage_tag = None
+    marriage_commit = _find_marriage_commit(graph_repo, father_id, mother_id)
 
-    if marriage_tag_name in graph_repo.tags:
-        marriage_tag = graph_repo.tags[marriage_tag_name]
-    elif reverse_marriage_tag_name in graph_repo.tags:
-        marriage_tag = graph_repo.tags[reverse_marriage_tag_name]
-
-    if marriage_tag:
-        marriage_commit = marriage_tag.commit
+    if marriage_commit:
         print("Found existing marriage.")
     else:
-        print("Marriage not found, creating it now.")
-        if not marry(father_id, mother_id):
-            print("Error: Failed to create marriage.")
+        father_details = _get_person_name_by_id(data_repo, father_id)
+        mother_details = _get_person_name_by_id(data_repo, mother_id)
+        print(f"Marriage between {father_details['first_name']} {father_details['last_name']} ({father_id}) and {mother_details['first_name']} {mother_details['last_name']} ({mother_id}) not found.")
+        if click.confirm(f"Do you want to create a marriage between {father_details['first_name']} {father_details['last_name']} and {mother_details['first_name']} {mother_details['last_name']} now?"):
+            if not marry(father_id, mother_id):
+                print("Error: Failed to create marriage.")
+                return False
+            # After marry, the tag should exist, so we can find the commit
+            marriage_commit = _find_marriage_commit(graph_repo, father_id, mother_id)
+            if not marriage_commit: # Should not happen if marry was successful
+                print("Error: Marriage was created but commit could not be found.")
+                return False
+            graph_repo.head.reset(index=True, working_tree=True)
+        else:
+            print("Operation aborted by user.")
             return False
-        marriage_tag = graph_repo.tags[marriage_tag_name]
-        marriage_commit = marriage_tag.commit
-        graph_repo.head.reset(index=True, working_tree=True)
 
     # 3. Rewrite history to make the child a child of the marriage.
     if not _make_child_rewrite_permanent(graph_repo, child_commit, marriage_commit):

@@ -43,14 +43,17 @@ def init(root_path):
 @click.option('-b', '--birth-date', help='Birth date in YYYY-MM-DD format.')
 @click.option('-g', '--gender', help='The person\'s gender.')
 @click.option('-n', '--nickname', help='The person\'s nickname.')
-def add(first_name, last_name, middle_name, birth_date, gender, nickname):
+@click.option('--father', 'father_id', help='The father\'s person ID.')
+@click.option('--mother', 'mother_id', help='The mother\'s person ID.')
+def add(first_name, last_name, middle_name, birth_date, gender, nickname, father_id, mother_id):
     """Adds a new person to the family tree."""
     click.echo(f"Adding person: {first_name} {last_name}...")
-    success = main.add_person(first_name, last_name, middle_name, birth_date, gender, nickname)
+    success = main.add_person(first_name, last_name, middle_name, birth_date, gender, nickname, father_id, mother_id)
     if success:
         click.secho("Successfully added person!", fg='green')
     else:
         click.secho("Failed to add person.", fg='red')
+
 
 @cli.command('marry')
 @click.option('-m', '--male', 'male_id', required=True, help="The male's person ID.")
