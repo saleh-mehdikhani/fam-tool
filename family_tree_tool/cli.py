@@ -56,12 +56,12 @@ def add(first_name, last_name, middle_name, birth_date, gender, nickname, father
 
 
 @cli.command('marry')
-@click.option('-m', '--male', 'male_id', required=True, help="The male's person ID.")
-@click.option('-f', '--female', 'female_id', required=True, help="The female's person ID.")
-def marry(male_id, female_id):
+@click.option('-m', '--male', 'male', required=True, help="The male's person ID or name.")
+@click.option('-f', '--female', 'female', required=True, help="The female's person ID or name.")
+def marry(male, female):
     """Creates a marriage event between two people."""
-    click.echo(f"Marrying {male_id} and {female_id}...")
-    success = main.marry(male_id, female_id)
+    click.echo(f"Marrying {male} and {female}...")
+    success = main.marry(male, female)
     if success:
         click.secho("Successfully created marriage event!", fg='green')
     else:

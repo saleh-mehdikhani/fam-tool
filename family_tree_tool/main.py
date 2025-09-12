@@ -339,24 +339,30 @@ def add_person(first_name, last_name, middle_name, birth_date, gender, nickname,
 
     return True
 
-def marry(male_id, female_id):
+def marry(male, female):
     """Creates a marriage event between two people in the graph repository."""
     data_repo, graph_repo = find_repos()
     if not data_repo or not graph_repo:
         print("Error: Must be run from within a valid data repository with a 'family_graph' submodule.")
         return False
 
+    resolved_male_id = _resolve_person_id_input(data_repo, male, "male")
+    resolved_female_id = _resolve_person_id_input(data_repo, female, "female")
+
+    if not resolved_male_id or not resolved_female_id:
+        return False # Abort if IDs cannot be resolved
+
     try:
-        male_commit = _find_person_commit_by_id(graph_repo, male_id)
-        female_commit = _find_person_commit_by_id(graph_repo, female_id)
+        male_commit = _find_person_commit_by_id(graph_repo, resolved_male_id)
+        female_commit = _find_person_commit_by_id(graph_repo, resolved_female_id)
 
         if not male_commit or not female_commit:
             print("Error: Could not find one or both persons.")
             return False
 
         # Check if marriage already exists
-        marriage_tag1 = f"marriage_{male_id[:8]}_{female_id[:8]}"
-        marriage_tag2 = f"marriage_{female_id[:8]}_{male_id[:8]}"
+        marriage_tag1 = f"marriage_{resolved_male_id[:8]}_{resolved_female_id[:8]}"
+        marriage_tag2 = f"marriage_{resolved_female_id[:8]}_{resolved_male_id[:8]}"
         if marriage_tag1 in graph_repo.tags or marriage_tag2 in graph_repo.tags:
             print("Error: Marriage already registered.")
             return False
@@ -364,14 +370,14 @@ def marry(male_id, female_id):
         # Create a merge commit
         merge_base = graph_repo.merge_base(male_commit, female_commit)
         graph_repo.index.merge_tree(female_commit, base=merge_base)
-        commit_message = f"Marriage: {male_id} and {female_id}"
+        commit_message = f"Marriage: {resolved_male_id} and {resolved_female_id}"
         marriage_commit = graph_repo.index.commit(commit_message, parent_commits=(male_commit, female_commit), head=False)
 
         # Tag the marriage commit
-        marriage_tag = f"marriage_{male_id[:8]}_{female_id[:8]}"
+        marriage_tag = f"marriage_{resolved_male_id[:8]}_{resolved_female_id[:8]}"
         graph_repo.create_tag(marriage_tag, ref=marriage_commit)
 
-        print(f"Successfully created marriage event between {male_id} and {female_id}.")
+        print(f"Successfully created marriage event between {resolved_male_id} and {resolved_female_id}.")
         return True
 
     except git.GitCommandError as e:
@@ -417,11 +423,12 @@ def _get_person_name_by_id(data_repo, person_id):
             person_data = yaml.safe_load(f)
             if person_data.get('id', '').startswith(person_id):
                 return {
+                    'id': person_data.get('id'),
                     'first_name': person_data.get('first_name', ''),
                     'last_name': person_data.get('last_name', ''),
                     'name': person_data.get('name', person_id)
                 }
-    return {'first_name': person_id, 'last_name': '', 'name': person_id} # Return ID if person file not found
+    return {'id': None, 'first_name': person_id, 'last_name': '', 'name': person_id} # Return ID if person file not found
 
 def _get_person_id_by_name(data_repo, name):
     """
@@ -456,14 +463,21 @@ def _resolve_person_id_input(data_repo, input_str, role):
     if not input_str:
         return None
 
-    # Check if it's a valid UUID (ID)
-    try:
-        uuid.UUID(input_str)
-        return input_str # It's a valid UUID, so treat it as an ID
-    except ValueError:
-        pass # Not a UUID, proceed to name search
+    # First, try to find by ID (short or full UUID)
+    # _get_person_id_by_name can handle partial IDs as search terms
+    # but it's primarily for names. Let's use _get_person_name_by_id to check if it's a valid ID
+    # and then _get_person_id_by_name to get the full ID if it's a name.
 
-    # Assume it's a name
+    # Check if input_str is a valid ID (short or full)
+    # We can use _get_person_name_by_id to check if a person with this ID exists
+    person_details_by_id = _get_person_name_by_id(data_repo, input_str)
+    if person_details_by_id and person_details_by_id['id'] is not None: # Check if a person was actually found by ID
+        if person_details_by_id['id'] == input_str: # Exact ID match
+            return input_str
+        elif person_details_by_id['id'].startswith(input_str): # Short ID match
+            return person_details_by_id['id']
+
+    # If not found as an ID, assume it's a name
     matches = _get_person_id_by_name(data_repo, input_str)
 
     if not matches:
@@ -474,7 +488,7 @@ def _resolve_person_id_input(data_repo, input_str, role):
     else:
         print(f"Multiple people found matching '{input_str}' for {role}:")
         for i, person in enumerate(matches):
-            print(f"{i+1}. {person['first_name']} {person['last_name']} ({person['id']})")
+            print(f"{i+1}. {person['first_name']} {person['last_name']} (ID: {person['id'][:8]})") # Display short ID
         
         while True:
             choice = click.prompt("Please enter the number corresponding to the correct person")
