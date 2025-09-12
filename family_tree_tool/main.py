@@ -381,7 +381,7 @@ def _get_person_name_by_id(data_repo, person_id):
     for person_file in people_dir.glob(f"{person_id[:8]}*.yml"):
         with open(person_file, 'r', encoding='utf-8') as f:
             person_data = yaml.safe_load(f)
-            if person_data.get('id') == person_id:
+            if person_data.get('id', '').startswith(person_id):
                 return {
                     'first_name': person_data.get('first_name', ''),
                     'last_name': person_data.get('last_name', ''),
