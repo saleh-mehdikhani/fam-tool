@@ -604,6 +604,8 @@ def add_child(father_id, mother_id, child_id):
     return True
 
 def _calculate_generations(nodes, edges):
+
+
     node_map = {node['id']: node for node in nodes}
 
     # Initial setup: find roots (those who are not children) and set their generation to 0.
@@ -726,3 +728,111 @@ def export_to_json(output_filename):
     except Exception as e:
         print(f"Error writing JSON file: {e}")
         return False
+
+def _get_all_people(data_repo):
+    """
+    Retrieves all people from the data repository.
+    Returns a list of dictionaries: [{'id': ..., 'first_name': ..., 'last_name': ..., 'name': ...}]
+    """
+    people = []
+    people_dir = Path(data_repo.working_dir) / 'people'
+    for person_file in people_dir.glob('*.yml'):
+        with open(person_file, 'r', encoding='utf-8') as f:
+            person_data = yaml.safe_load(f)
+            people.append({
+                'id': person_data.get('id'),
+                'first_name': person_data.get('first_name'),
+                'last_name': person_data.get('last_name'),
+                'name': person_data.get('name')
+            })
+    return people
+
+def _get_relationships(graph_repo, nodes):
+    parents_map = {}
+    children_map = {}
+    person_tags = [tag for tag in graph_repo.tags if not tag.name.startswith("marriage_") and tag.name != "GRAPH_ROOT"]
+
+    for tag in person_tags:
+        child_commit = tag.commit
+        child_id_short = tag.name
+        child_id_full = next((node['id'] for node in nodes if node['id'].startswith(child_id_short)), None)
+
+        if child_id_full and child_commit.parents:
+            for parent_commit in child_commit.parents:
+                marriage_tag_name = None
+                for mtag in graph_repo.tags:
+                    if mtag.commit.hexsha == parent_commit.hexsha and mtag.name.startswith("marriage_"):
+                        marriage_tag_name = mtag.name
+                        break
+                
+                if marriage_tag_name:
+                    parts = marriage_tag_name.split('_')
+                    if len(parts) == 3:
+                        p1_short = parts[1]
+                        p2_short = parts[2]
+                        p1_full = next((node['id'] for node in nodes if node['id'].startswith(p1_short)), None)
+                        p2_full = next((node['id'] for node in nodes if node['id'].startswith(p2_short)), None)
+                        if p1_full and p2_full:
+                            parents_map[child_id_full] = [p1_full, p2_full]
+                            if p1_full not in children_map:
+                                children_map[p1_full] = []
+                            children_map[p1_full].append(child_id_full)
+                            if p2_full not in children_map:
+                                children_map[p2_full] = []
+                            children_map[p2_full].append(child_id_full)
+    return parents_map, children_map
+
+def list_people(name=None, show_children=False, show_parents=False):
+    """Lists people with optional details about their children and parents."""
+    data_repo, graph_repo = find_repos()
+    if not data_repo or not graph_repo:
+        print("Error: Must be run from within a valid data repository with a 'family_graph' submodule.")
+        return False
+
+    all_people = _get_all_people(data_repo)
+    people_to_list = []
+
+    if name:
+        name_lower = name.lower()
+        for person in all_people:
+            if name_lower in person.get('name', '').lower() or \
+               name_lower == person.get('first_name', '').lower() or \
+               name_lower == person.get('last_name', '').lower():
+                people_to_list.append(person)
+    else:
+        people_to_list = all_people
+
+    if not people_to_list:
+        click.secho("No people found.", fg='yellow')
+        return False
+
+    parents_map, children_map = {}, {}
+    if show_children or show_parents:
+        parents_map, children_map = _get_relationships(graph_repo, all_people)
+
+    # Create a map of ID to person details for easy lookup
+    people_map = {p['id']: p for p in all_people}
+
+    for person in sorted(people_to_list, key=lambda p: p.get('name', '')):
+        short_id = person['id'][:8] if person.get('id') else 'N/A'
+        click.secho(f"- {person.get('name', 'Unknown')} (ID: {short_id})", fg='cyan')
+
+        if show_parents and person.get('id') in parents_map:
+            parent_ids = parents_map[person['id']]
+            click.secho("    Parents:", fg='green')
+            for parent_id in parent_ids:
+                parent_details = people_map.get(parent_id)
+                if parent_details:
+                    parent_short_id = parent_id[:8]
+                    click.echo(f"        - {parent_details.get('name', 'Unknown')} (ID: {parent_short_id})")
+
+        if show_children and person.get('id') in children_map:
+            child_ids = children_map[person['id']]
+            click.secho("    Children:", fg='yellow')
+            for child_id in child_ids:
+                child_details = people_map.get(child_id)
+                if child_details:
+                    child_short_id = child_id[:8]
+                    click.echo(f"        - {child_details.get('name', 'Unknown')} (ID: {child_short_id})")
+    
+    return True

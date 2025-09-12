@@ -136,5 +136,15 @@ def find(name):
     else:
         click.secho("No people found or an error occurred.", fg='red')
 
+
+@cli.command('list')
+@click.argument('name', required=False)
+@click.option('-c', '--children', is_flag=True, help='List the children of the specified person.')
+@click.option('-p', '--parents', is_flag=True, help='List the parents of the specified person.')
+def list_people(name, children, parents):
+    """Lists all people, or people matching a given name, with options to show children and parents."""
+    main.list_people(name, children, parents)
+
+
 if __name__ == '__main__':
     cli()
