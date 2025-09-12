@@ -806,6 +806,8 @@ def list_people(name=None, show_children=False, show_parents=False):
         click.secho("No people found.", fg='yellow')
         return False
 
+    click.secho(f"Found {len(people_to_list)} matching records out of {len(all_people)} total records.", fg='blue')
+
     parents_map, children_map = {}, {}
     if show_children or show_parents:
         parents_map, children_map = _get_relationships(graph_repo, all_people)
