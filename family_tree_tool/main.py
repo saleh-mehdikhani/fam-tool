@@ -235,17 +235,23 @@ def add_person(first_name, last_name, middle_name, birth_date, gender, nickname,
     try:
         parent_commit = None
         if father_id and mother_id:
-            marriage_commit = _find_marriage_commit(graph_repo, father_id, mother_id)
+            resolved_father_id = _resolve_person_id_input(data_repo, father_id, "father")
+            resolved_mother_id = _resolve_person_id_input(data_repo, mother_id, "mother")
+
+            if not resolved_father_id or not resolved_mother_id:
+                return False # Abort if IDs cannot be resolved
+
+            marriage_commit = _find_marriage_commit(graph_repo, resolved_father_id, resolved_mother_id)
             if not marriage_commit:
-                father_details = _get_person_name_by_id(data_repo, father_id)
-                mother_details = _get_person_name_by_id(data_repo, mother_id)
-                print(f"Marriage between {father_details['first_name']} {father_details['last_name']} ({father_id}) and {mother_details['first_name']} {mother_details['last_name']} ({mother_id}) not found.")
+                father_details = _get_person_name_by_id(data_repo, resolved_father_id)
+                mother_details = _get_person_name_by_id(data_repo, resolved_mother_id)
+                print(f"Marriage between {father_details['first_name']} {father_details['last_name']} ({resolved_father_id}) and {mother_details['first_name']} {mother_details['last_name']} ({resolved_mother_id}) not found.")
                 if click.confirm(f"Do you want to create a marriage between {father_details['first_name']} {father_details['last_name']} and {mother_details['first_name']} {mother_details['last_name']} now?"):
-                    if not marry(father_id, mother_id):
+                    if not marry(resolved_father_id, resolved_mother_id):
                         print("Error: Failed to create marriage.")
                         return False
                     # After marry, the tag should exist, so we can find the commit
-                    marriage_commit = _find_marriage_commit(graph_repo, father_id, mother_id)
+                    marriage_commit = _find_marriage_commit(graph_repo, resolved_father_id, resolved_mother_id)
                     if not marriage_commit: # Should not happen if marry was successful
                         print("Error: Marriage was created but commit could not be found.")
                         return False
@@ -356,13 +362,22 @@ def marry(male_id, female_id):
 def _find_person_commit_by_id(repo, person_id):
     """Finds a person's commit in the graph repo by its short or long ID."""
     try:
+        # Try to find by full ID (commit SHA or tag name if it's a full ID)
         obj = repo.rev_parse(person_id)
         if isinstance(obj, git.TagObject):
             return obj.object
         return obj
     except git.BadName:
-        print(f"Error: Could not find person with ID '{person_id}'.")
-        return None
+        # If not found by full ID, try by short ID (which is how person tags are created)
+        short_id = person_id[:8]
+        try:
+            obj = repo.rev_parse(short_id)
+            if isinstance(obj, git.TagObject):
+                return obj.object
+            return obj
+        except git.BadName:
+            print(f"Error: Could not find person with ID '{person_id}'.")
+            return None
 
 def _find_marriage_commit(repo, id1, id2):
     """Finds a marriage commit by two person IDs."""
@@ -389,7 +404,72 @@ def _get_person_name_by_id(data_repo, person_id):
                 }
     return {'first_name': person_id, 'last_name': '', 'name': person_id} # Return ID if person file not found
 
+def _get_person_id_by_name(data_repo, name):
+    """
+    Retrieves person IDs and details by name.
+    Returns a list of dictionaries: [{'id': ..., 'first_name': ..., 'last_name': ..., 'name': ...}]
+    """
+    matches = []
+    people_dir = Path(data_repo.working_dir) / 'people'
+    for person_file in people_dir.glob('*.yml'):
+        with open(person_file, 'r', encoding='utf-8') as f:
+            person_data = yaml.safe_load(f)
+            full_name = person_data.get('name', '').lower()
+            first_name = person_data.get('first_name', '').lower()
+            last_name = person_data.get('last_name', '').lower()
+
+            if name.lower() in full_name or \
+               name.lower() == first_name or \
+               name.lower() == last_name:
+                matches.append({
+                    'id': person_data.get('id'),
+                    'first_name': person_data.get('first_name'),
+                    'last_name': person_data.get('last_name'),
+                    'name': person_data.get('name')
+                })
+    return matches
+
+def _resolve_person_id_input(data_repo, input_str, role):
+    """
+    Resolves a person ID from an input string, which can be an ID or a name.
+    Handles interactive selection if multiple matches are found for a name.
+    """
+    if not input_str:
+        return None
+
+    # Check if it's a valid UUID (ID)
+    try:
+        uuid.UUID(input_str)
+        return input_str # It's a valid UUID, so treat it as an ID
+    except ValueError:
+        pass # Not a UUID, proceed to name search
+
+    # Assume it's a name
+    matches = _get_person_id_by_name(data_repo, input_str)
+
+    if not matches:
+        print(f"Error: No person found matching '{input_str}' for {role}.")
+        return None
+    elif len(matches) == 1:
+        return matches[0]['id']
+    else:
+        print(f"Multiple people found matching '{input_str}' for {role}:")
+        for i, person in enumerate(matches):
+            print(f"{i+1}. {person['first_name']} {person['last_name']} ({person['id']})")
+        
+        while True:
+            choice = click.prompt("Please enter the number corresponding to the correct person")
+            try:
+                choice_idx = int(choice) - 1
+                if 0 <= choice_idx < len(matches):
+                    return matches[choice_idx]['id']
+                else:
+                    print("Invalid choice. Please enter a number from the list.")
+            except ValueError:
+                print("Invalid input. Please enter a number.")
+
 def _make_child_rewrite_permanent(graph_repo, child_commit, marriage_commit):
+
     original_cwd = os.getcwd()
     os.chdir(graph_repo.working_dir)
 
@@ -428,29 +508,36 @@ def add_child(father_id, mother_id, child_id):
     graph_repo.head.reset(index=True, working_tree=True)
 
     # 1. Find all parties.
-    father_commit = _find_person_commit_by_id(graph_repo, father_id)
-    mother_commit = _find_person_commit_by_id(graph_repo, mother_id)
-    child_commit = _find_person_commit_by_id(graph_repo, child_id)
+    resolved_father_id = _resolve_person_id_input(data_repo, father_id, "father")
+    resolved_mother_id = _resolve_person_id_input(data_repo, mother_id, "mother")
+    resolved_child_id = _resolve_person_id_input(data_repo, child_id, "child") # Child can also be by name
+
+    if not resolved_father_id or not resolved_mother_id or not resolved_child_id:
+        return False # Abort if IDs cannot be resolved
+
+    father_commit = _find_person_commit_by_id(graph_repo, resolved_father_id)
+    mother_commit = _find_person_commit_by_id(graph_repo, resolved_mother_id)
+    child_commit = _find_person_commit_by_id(graph_repo, resolved_child_id)
 
     if not all([father_commit, mother_commit, child_commit]):
         print("Error: Could not find father, mother, or child.")
         return False
 
     # 2. Find or create the marriage.
-    marriage_commit = _find_marriage_commit(graph_repo, father_id, mother_id)
+    marriage_commit = _find_marriage_commit(graph_repo, resolved_father_id, resolved_mother_id)
 
     if marriage_commit:
         print("Found existing marriage.")
     else:
-        father_details = _get_person_name_by_id(data_repo, father_id)
-        mother_details = _get_person_name_by_id(data_repo, mother_id)
-        print(f"Marriage between {father_details['first_name']} {father_details['last_name']} ({father_id}) and {mother_details['first_name']} {mother_details['last_name']} ({mother_id}) not found.")
+        father_details = _get_person_name_by_id(data_repo, resolved_father_id)
+        mother_details = _get_person_name_by_id(data_repo, resolved_mother_id)
+        print(f"Marriage between {father_details['first_name']} {father_details['last_name']} ({resolved_father_id}) and {mother_details['first_name']} {mother_details['last_name']} ({resolved_mother_id}) not found.")
         if click.confirm(f"Do you want to create a marriage between {father_details['first_name']} {father_details['last_name']} and {mother_details['first_name']} {mother_details['last_name']} now?"):
-            if not marry(father_id, mother_id):
+            if not marry(resolved_father_id, resolved_mother_id):
                 print("Error: Failed to create marriage.")
                 return False
             # After marry, the tag should exist, so we can find the commit
-            marriage_commit = _find_marriage_commit(graph_repo, father_id, mother_id)
+            marriage_commit = _find_marriage_commit(graph_repo, resolved_father_id, resolved_mother_id)
             if not marriage_commit: # Should not happen if marry was successful
                 print("Error: Marriage was created but commit could not be found.")
                 return False
@@ -480,7 +567,7 @@ def add_child(father_id, mother_id, child_id):
                 else:  # lightweight tag
                     graph_repo.create_tag(tag.name, ref=new_commit, force=True)
 
-    print(f"Successfully added {child_id} as a child of {father_id} and {mother_id}.")
+    print(f"Successfully added {resolved_child_id} as a child of {resolved_father_id} and {resolved_mother_id}.")
     return True
 
 def _calculate_generations(nodes, edges):
