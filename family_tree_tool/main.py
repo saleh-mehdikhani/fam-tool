@@ -214,6 +214,25 @@ def display_graph_log():
         # Change back to the original directory
         os.chdir(original_cwd)
 
+def find_person_by_name(name):
+    """Finds people by name and lists their full name and short ID."""
+    data_repo, graph_repo = find_repos()
+    if not data_repo or not graph_repo:
+        print("Error: Must be run from within a valid data repository with a 'family_graph' submodule.")
+        return False
+
+    matches = _get_person_id_by_name(data_repo, name)
+
+    if not matches:
+        print(f"No people found matching '{name}'.")
+        return False
+    else:
+        print("Found the following people:")
+        for person in matches:
+            short_id = person['id'][:8] if person['id'] else 'N/A'
+            print(f"- {person['name']} (ID: {short_id})")
+        return True
+
 # --- Core Logic ---
 
 def add_person(first_name, last_name, middle_name, birth_date, gender, nickname, father_id=None, mother_id=None):

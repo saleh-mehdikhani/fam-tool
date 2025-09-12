@@ -125,5 +125,16 @@ def graph():
     else:
         click.secho("Failed to display graph log.", fg='red')
 
+@cli.command('find')
+@click.argument('name')
+def find(name):
+    """Finds people by name and lists their full name and short ID."""
+    click.echo(f"Searching for people named '{name}'...")
+    success = main.find_person_by_name(name)
+    if success:
+        click.secho("Search complete.", fg='green')
+    else:
+        click.secho("No people found or an error occurred.", fg='red')
+
 if __name__ == '__main__':
     cli()
