@@ -266,7 +266,7 @@ def add_person(first_name, last_name, middle_name, birth_date, gender, nickname,
                 mother_details = _get_person_name_by_id(data_repo, resolved_mother_id)
                 print(f"Marriage between {father_details['first_name']} {father_details['last_name']} ({resolved_father_id}) and {mother_details['first_name']} {mother_details['last_name']} ({resolved_mother_id}) not found.")
                 if click.confirm(f"Do you want to create a marriage between {father_details['first_name']} {father_details['last_name']} and {mother_details['first_name']} {mother_details['last_name']} now?"):
-                    if not marry(resolved_father_id, resolved_mother_id):
+                    if not marry(resolved_father_id, resolved_mother_id, commit_submodule=False):
                         print("Error: Failed to create marriage.")
                         return False
                     # After marry, the tag should exist, so we can find the commit
@@ -334,12 +334,13 @@ def add_person(first_name, last_name, middle_name, birth_date, gender, nickname,
 
     # 6. Commit to data repo
     data_repo.index.add([str(filepath)])
+    data_repo.git.add('family_graph')
     data_repo.index.commit(f"feat: Add person '{full_name}' ({short_id})")
     print("Committed person file to data repository.")
 
     return True
 
-def marry(male, female):
+def marry(male, female, commit_submodule=True):
     """Creates a marriage event between two people in the graph repository."""
     data_repo, graph_repo = find_repos()
     if not data_repo or not graph_repo:
@@ -378,6 +379,13 @@ def marry(male, female):
         graph_repo.create_tag(marriage_tag, ref=marriage_commit)
 
         print(f"Successfully created marriage event between {resolved_male_id} and {resolved_female_id}.")
+
+        if commit_submodule:
+            # Commit submodule update to data repo
+            data_repo.git.add('family_graph')
+            data_repo.index.commit(f"feat: Register marriage between {resolved_male_id} and {resolved_female_id}")
+            print("Committed marriage event to data repository.")
+
         return True
 
     except git.GitCommandError as e:
@@ -601,6 +609,12 @@ def add_child(father_id, mother_id, child_id):
                     graph_repo.create_tag(tag.name, ref=new_commit, force=True)
 
     print(f"Successfully added {resolved_child_id} as a child of {resolved_father_id} and {resolved_mother_id}.")
+
+    # Commit submodule update to data repo
+    data_repo.git.add('family_graph')
+    data_repo.index.commit(f"feat: Add child {resolved_child_id} to {resolved_father_id} and {resolved_mother_id}")
+    print("Committed child relationship to data repository.")
+
     return True
 
 def _calculate_generations(nodes, edges):
