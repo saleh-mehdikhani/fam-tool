@@ -98,8 +98,7 @@ def initialize_remotes(data_remote, graph_remote):
         data_repo.create_remote('origin', data_remote)
 
         submodule = data_repo.submodule('family_graph')
-        with data_repo.config_writer() as writer:
-            writer.set_value(f'submodule "{submodule.name}"', "url", graph_remote)
+        subprocess.run(['git', 'config', '--file=.gitmodules', f'submodule.{submodule.name}.url', graph_remote], check=True, cwd=data_repo.working_dir)
         
         data_repo.index.add(['.gitmodules'])
         if data_repo.is_dirty():
@@ -110,7 +109,7 @@ def initialize_remotes(data_remote, graph_remote):
         graph_repo.create_remote('origin', graph_remote)
 
         return True
-    except git.GitCommandError as e:
+    except (git.GitCommandError, subprocess.CalledProcessError) as e:
         print(f"Error setting remote URLs: {e}")
         return False
 
