@@ -146,5 +146,11 @@ def list_people(name, children, parents):
     main.list_people(name, children, parents)
 
 
+@cli.command('report')
+def report():
+    """Provides a report on the health and statistics of the family tree data."""
+    main.run_report()
+
+
 if __name__ == '__main__':
     cli()
