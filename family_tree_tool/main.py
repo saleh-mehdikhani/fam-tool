@@ -617,8 +617,6 @@ def add_child(father_id, mother_id, child_id):
     return True
 
 def _calculate_generations(nodes, edges):
-
-
     node_map = {node['id']: node for node in nodes}
 
     # Initial setup: find roots (those who are not children) and set their generation to 0.
@@ -628,7 +626,16 @@ def _calculate_generations(nodes, edges):
 
     # Iteratively propagate generations until no more changes are made
     changed_in_pass = True
+    pass_count = 0
+    max_passes = len(nodes) * 2 # A generous limit
+    
+    print("Calculating generations...")
     while changed_in_pass:
+        pass_count += 1
+        if pass_count > max_passes:
+            print("Warning: Generation calculation took too many passes. Aborting.")
+            break
+        
         changed_in_pass = False
 
         # Pass 1: Propagate generations to children
@@ -648,12 +655,14 @@ def _calculate_generations(nodes, edges):
                 p1 = node_map.get(edge['from'])
                 p2 = node_map.get(edge['to'])
                 if p1 and p2:
-                    if p1['generation'] != -1 and p2['generation'] != p1['generation']:
-                        p2['generation'] = p1['generation']
+                    max_gen = max(p1['generation'], p2['generation'])
+                    if p1['generation'] != max_gen:
+                        p1['generation'] = max_gen
                         changed_in_pass = True
-                    elif p2['generation'] != -1 and p1['generation'] != p2['generation']:
-                        p1['generation'] = p2['generation']
+                    if p2['generation'] != max_gen:
+                        p2['generation'] = max_gen
                         changed_in_pass = True
+    print("Generation calculation complete.")
 
 def export_to_json(output_filename):
     data_repo, graph_repo = find_repos()
@@ -665,61 +674,57 @@ def export_to_json(output_filename):
     edges = []
 
     # Read person data (nodes)
-    people_dir = Path(data_repo.working_dir) / 'people'
-    for person_file in people_dir.glob('*.yml'):
-        with open(person_file, 'r', encoding='utf-8') as f:
-            person_data = yaml.safe_load(f)
-            nodes.append(person_data)
+    people_files = list(Path(data_repo.working_dir).glob('people/*.yml'))
+    with click.progressbar(people_files, label='Reading person data') as bar:
+        for person_file in bar:
+            with open(person_file, 'r', encoding='utf-8') as f:
+                person_data = yaml.safe_load(f)
+                nodes.append(person_data)
 
     # Extract relationships (edges) from graph repo
-    person_id_to_commit_hexsha = {}
-    for tag in graph_repo.tags:
-        if tag.name.startswith("marriage_"):
-            # Marriage tags are like marriage_shortid1_shortid2
-            parts = tag.name.split('_')
-            if len(parts) == 3:
-                id1_short = parts[1]
-                id2_short = parts[2]
-                # Find full IDs from nodes
-                id1_full = next((node['id'] for node in nodes if node['id'].startswith(id1_short)), None)
-                id2_full = next((node['id'] for node in nodes if node['id'].startswith(id2_short)), None)
-                if id1_full and id2_full:
-                    edges.append({"from": id1_full, "to": id2_full, "type": "partner"})
-        else:
-            # Assume other tags are person IDs
-            person_id_to_commit_hexsha[tag.name] = tag.commit.hexsha
+    all_tags = graph_repo.tags
+    with click.progressbar(all_tags, label='Finding marriages') as bar:
+        for tag in bar:
+            if tag.name.startswith("marriage_"):
+                # Marriage tags are like marriage_shortid1_shortid2
+                parts = tag.name.split('_')
+                if len(parts) == 3:
+                    id1_short = parts[1]
+                    id2_short = parts[2]
+                    # Find full IDs from nodes
+                    id1_full = next((node['id'] for node in nodes if node['id'].startswith(id1_short)), None)
+                    id2_full = next((node['id'] for node in nodes if node['id'].startswith(id2_short)), None)
+                    if id1_full and id2_full:
+                        edges.append({"from": id1_full, "to": id2_full, "type": "partner"})
 
-    # Iterate through commits to find child relationships
-    for commit in graph_repo.iter_commits():
-        # Check if this commit is a person commit (has a tag matching a short ID)
-        child_id_short = None
-        for tag in graph_repo.tags: # Iterate through tags to find the one pointing to this commit
-            if tag.commit.hexsha == commit.hexsha and not tag.name.startswith("marriage_") and tag.name != "GRAPH_ROOT":
-                child_id_short = tag.name
-                break
+    # Pre-build a map of marriage commits to their tags for efficiency
+    marriage_tags = [tag for tag in all_tags if tag.name.startswith("marriage_")]
+    marriage_commit_to_tag = {tag.commit.hexsha: tag for tag in marriage_tags}
 
-        if child_id_short:
+    # Find person tags
+    person_tags = [tag for tag in all_tags if not tag.name.startswith("marriage_") and tag.name != "GRAPH_ROOT"]
+
+    with click.progressbar(person_tags, label='Finding parent-child relationships') as bar:
+        for tag in bar:
+            child_commit = tag.commit
+            child_id_short = tag.name
             child_id_full = next((node['id'] for node in nodes if node['id'].startswith(child_id_short)), None)
-            if child_id_full and commit.parents:
-                for parent_commit in commit.parents:
-                    # Check if parent is a marriage commit
-                    marriage_tag_name = None
-                    for tag in graph_repo.tags:
-                        if tag.commit.hexsha == parent_commit.hexsha and tag.name.startswith("marriage_"):
-                            marriage_tag_name = tag.name
-                            break
-                    
-                    if marriage_tag_name:
-                        # Extract parent IDs from marriage tag name
+
+            if child_id_full and child_commit.parents:
+                for parent_commit in child_commit.parents:
+                    if parent_commit.hexsha in marriage_commit_to_tag:
+                        marriage_tag = marriage_commit_to_tag[parent_commit.hexsha]
+                        marriage_tag_name = marriage_tag.name
+                        
                         parts = marriage_tag_name.split('_')
                         if len(parts) == 3:
-                            parent1_id_short = parts[1]
-                            parent2_id_short = parts[2]
-                            parent1_id_full = next((node['id'] for node in nodes if node['id'].startswith(parent1_id_short)), None)
-                            parent2_id_full = next((node['id'] for node in nodes if node['id'].startswith(parent2_id_short)), None)
-                            if parent1_id_full and parent2_id_full:
-                                edges.append({"from": parent1_id_full, "to": child_id_full, "type": "child"})
-                                edges.append({"from": parent2_id_full, "to": child_id_full, "type": "child"})
+                            p1_short = parts[1]
+                            p2_short = parts[2]
+                            p1_full = next((node['id'] for node in nodes if node['id'].startswith(p1_short)), None)
+                            p2_full = next((node['id'] for node in nodes if node['id'].startswith(p2_short)), None)
+                            if p1_full and p2_full:
+                                edges.append({"from": p1_full, "to": child_id_full, "type": "child"})
+                                edges.append({"from": p2_full, "to": child_id_full, "type": "child"})
 
     # --- Call the generation calculation function ---
     _calculate_generations(nodes, edges)
@@ -763,6 +768,11 @@ def _get_all_people(data_repo):
 def _get_relationships(graph_repo, nodes):
     parents_map = {}
     children_map = {}
+    
+    # Pre-build a map of marriage commits to their tags for efficiency
+    marriage_tags = [tag for tag in graph_repo.tags if tag.name.startswith("marriage_")]
+    marriage_commit_to_tag = {tag.commit.hexsha: tag for tag in marriage_tags}
+
     person_tags = [tag for tag in graph_repo.tags if not tag.name.startswith("marriage_") and tag.name != "GRAPH_ROOT"]
 
     for tag in person_tags:
@@ -772,13 +782,10 @@ def _get_relationships(graph_repo, nodes):
 
         if child_id_full and child_commit.parents:
             for parent_commit in child_commit.parents:
-                marriage_tag_name = None
-                for mtag in graph_repo.tags:
-                    if mtag.commit.hexsha == parent_commit.hexsha and mtag.name.startswith("marriage_"):
-                        marriage_tag_name = mtag.name
-                        break
-                
-                if marriage_tag_name:
+                if parent_commit.hexsha in marriage_commit_to_tag:
+                    marriage_tag = marriage_commit_to_tag[parent_commit.hexsha]
+                    marriage_tag_name = marriage_tag.name
+                    
                     parts = marriage_tag_name.split('_')
                     if len(parts) == 3:
                         p1_short = parts[1]
