@@ -259,6 +259,12 @@ def add_person(first_name, last_name, middle_name, birth_date, gender, nickname,
             if not resolved_father_id or not resolved_mother_id:
                 return False # Abort if IDs cannot be resolved
 
+            # Check for child-partner conflict
+            if _find_marriage_commit(graph_repo, resolved_father_id, person_id) or \
+               _find_marriage_commit(graph_repo, resolved_mother_id, person_id):
+                print("Error: A person cannot be a child of their partner.")
+                return False
+
             marriage_commit = _find_marriage_commit(graph_repo, resolved_father_id, resolved_mother_id)
             if not marriage_commit:
                 father_details = _get_person_name_by_id(data_repo, resolved_father_id)
@@ -284,6 +290,8 @@ def add_person(first_name, last_name, middle_name, birth_date, gender, nickname,
         else:
             graph_root_commit = graph_repo.tags['GRAPH_ROOT'].commit
             parent_commit = graph_root_commit
+
+
 
         graph_repo.head.reference = parent_commit
         graph_repo.head.reset(index=True, working_tree=True)
@@ -351,6 +359,27 @@ def marry(male, female, commit_submodule=True):
 
     if not resolved_male_id or not resolved_female_id:
         return False # Abort if IDs cannot be resolved
+
+    # Check if either person is already married
+    nodes = _get_all_people(data_repo)
+    _, children_map = _get_relationships(graph_repo, nodes)
+    
+    male_partners = [p for p, c in children_map.items() if resolved_male_id in c]
+    female_partners = [p for p, c in children_map.items() if resolved_female_id in c]
+
+    if male_partners:
+        male_details = _get_person_name_by_id(data_repo, resolved_male_id)
+        partner_details = _get_person_name_by_id(data_repo, male_partners[0])
+        if not click.confirm(f"{male_details['name']} is already married to {partner_details['name']}. Do you want to proceed with a new marriage?"):
+            print("Operation aborted by user.")
+            return False
+
+    if female_partners:
+        female_details = _get_person_name_by_id(data_repo, resolved_female_id)
+        partner_details = _get_person_name_by_id(data_repo, female_partners[0])
+        if not click.confirm(f"{female_details['name']} is already married to {partner_details['name']}. Do you want to proceed with a new marriage?"):
+            print("Operation aborted by user.")
+            return False
 
     try:
         male_commit = _find_person_commit_by_id(graph_repo, resolved_male_id)
@@ -555,6 +584,35 @@ def add_child(father_id, mother_id, child_id):
     if not resolved_father_id or not resolved_mother_id or not resolved_child_id:
         return False # Abort if IDs cannot be resolved
 
+    nodes = _get_all_people(data_repo)
+    parents_map, _ = _get_relationships(graph_repo, nodes)
+
+    father_ancestors = _get_ancestors(resolved_father_id, parents_map)
+    mother_ancestors = _get_ancestors(resolved_mother_id, parents_map)
+    
+    all_ancestors = father_ancestors.union(mother_ancestors)
+    all_ancestors.add(resolved_father_id)
+    all_ancestors.add(resolved_mother_id)
+
+    if resolved_child_id in all_ancestors:
+        print("Error: A person cannot be an ancestor of their own parents.")
+        return False
+
+    if _find_marriage_commit(graph_repo, resolved_child_id, resolved_father_id) or \
+       _find_marriage_commit(graph_repo, resolved_child_id, resolved_mother_id):
+        print("Error: A person cannot be a child of their partner.")
+        return False
+
+    # Check if the child is already a child of other parents
+    if resolved_child_id in parents_map:
+        child_details = _get_person_name_by_id(data_repo, resolved_child_id)
+        current_parents = parents_map[resolved_child_id]
+        parent_names = [_get_person_name_by_id(data_repo, p) for p in current_parents]
+        parent_names_str = " and ".join([p['name'] for p in parent_names])
+        if not click.confirm(f"{child_details['name']} is already a child of {parent_names_str}. Do you want to move them to the new parents?"):
+            print("Operation aborted by user.")
+            return False
+
     father_commit = _find_person_commit_by_id(graph_repo, resolved_father_id)
     mother_commit = _find_person_commit_by_id(graph_repo, resolved_mother_id)
     child_commit = _find_person_commit_by_id(graph_repo, resolved_child_id)
@@ -562,6 +620,7 @@ def add_child(father_id, mother_id, child_id):
     if not all([father_commit, mother_commit, child_commit]):
         print("Error: Could not find father, mother, or child.")
         return False
+
 
     # 2. Find or create the marriage.
     marriage_commit = _find_marriage_commit(graph_repo, resolved_father_id, resolved_mother_id)
@@ -848,6 +907,15 @@ def _get_relationships(graph_repo, nodes):
             children_map[parent_id].append(child_id)
             
     return parents_map, children_map
+
+def _get_ancestors(person_id, parents_map):
+    ancestors = set()
+    if person_id in parents_map:
+        parents = parents_map[person_id]
+        for parent_id in parents:
+            ancestors.add(parent_id)
+            ancestors.update(_get_ancestors(parent_id, parents_map))
+    return ancestors
 
 def list_people(name=None, show_children=False, show_parents=False):
     """Lists people with optional details about their children and parents."""
