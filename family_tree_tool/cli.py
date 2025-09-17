@@ -152,5 +152,12 @@ def report():
     main.run_report()
 
 
+@cli.command('remove')
+@click.argument('person_id')
+def remove(person_id):
+    """Removes a person from the family tree."""
+    main.remove_person(person_id)
+
+
 if __name__ == '__main__':
     cli()

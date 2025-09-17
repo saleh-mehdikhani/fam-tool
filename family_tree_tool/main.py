@@ -500,23 +500,28 @@ def _resolve_person_id_input(data_repo, input_str, role):
         return None
 
     # First, try to find by ID (short or full UUID)
-    # _get_person_id_by_name can handle partial IDs as search terms
-    # but it's primarily for names. Let's use _get_person_name_by_id to check if it's a valid ID
-    # and then _get_person_id_by_name to get the full ID if it's a name.
-
-    # Check if input_str is a valid ID (short or full)
-    # We can use _get_person_name_by_id to check if a person with this ID exists
     person_details_by_id = _get_person_name_by_id(data_repo, input_str)
-    if person_details_by_id and person_details_by_id['id'] is not None: # Check if a person was actually found by ID
-        if person_details_by_id['id'] == input_str: # Exact ID match
+    if person_details_by_id and person_details_by_id['id'] is not None:
+        if person_details_by_id['id'] == input_str:
             return input_str
-        elif person_details_by_id['id'].startswith(input_str): # Short ID match
+        elif person_details_by_id['id'].startswith(input_str):
             return person_details_by_id['id']
 
     # If not found as an ID, assume it's a name
     matches = _get_person_id_by_name(data_repo, input_str)
 
     if not matches:
+        # Fallback to graph repo if no data file is found
+        _, graph_repo = find_repos()
+        if graph_repo:
+            try:
+                tag = graph_repo.tags[input_str]
+                # We can't get the full ID from the tag, but we can confirm the person exists.
+                # We will return the short ID and let the caller handle it.
+                return input_str
+            except (IndexError, KeyError):
+                pass
+
         print(f"Error: No person found matching '{input_str}' for {role}.")
         return None
     elif len(matches) == 1:
@@ -973,3 +978,219 @@ def list_people(name=None, show_children=False, show_parents=False):
                     click.echo(f"        - {child_details.get('name', 'Unknown')} (ID: {child_short_id})")
     
     return True
+
+
+def remove_person(person_id):
+    """Removes a person from the family tree."""
+    data_repo, graph_repo = find_repos()
+    if not data_repo or not graph_repo:
+        click.secho("Error: Must be run from within a valid data repository with a 'family_graph' submodule.", fg='red')
+        return False
+
+    resolved_person_id = _resolve_person_id_input(data_repo, person_id, "person to remove")
+    if not resolved_person_id:
+        return False
+
+    person_details = _get_person_name_by_id(data_repo, resolved_person_id)
+    person_name = person_details.get('name', resolved_person_id)
+
+    # --- Dependency Check ---
+    marriages, children = _find_dependent_commits(data_repo, graph_repo, resolved_person_id)
+
+    if marriages or children:
+        click.secho(f"Warning: Removing {person_name} will also remove the following:", fg='yellow')
+        if marriages:
+            click.echo("  - Marriages:")
+            for marriage_commit, partner_id in marriages:
+                partner_details = _get_person_name_by_id(data_repo, partner_id)
+                click.echo(f"    - Marriage to {partner_details.get('name', partner_id)}")
+        if children:
+            click.echo("  - Children:")
+            for child_id in children:
+                child_details = _get_person_name_by_id(data_repo, child_id)
+                click.echo(f"    - {child_details.get('name', child_id)}")
+        
+        if not click.confirm("Are you sure you want to proceed?"):
+            click.echo("Operation aborted.")
+            return False
+
+    if not _rewrite_history_for_removal(graph_repo, resolved_person_id, marriages, children):
+        click.secho("Error: Failed to rewrite graph history. The data file has been removed, but the graph is now in an inconsistent state. Please restore the data file from git history and try again.", fg='red')
+        return False
+
+    if not _delete_person_data(data_repo, resolved_person_id):
+        return False
+
+    # --- Final Commit ---
+    data_repo.git.add('family_graph')
+    data_repo.index.commit(f"feat: Remove person '{person_name}' ({resolved_person_id[:8]})")
+    click.secho(f"Successfully removed {person_name}.", fg='green')
+    return True
+
+
+def _find_dependent_commits(data_repo, graph_repo, person_id):
+    """Finds marriage and children commits dependent on a person."""
+    marriages = []
+    children = []
+    
+    # Find marriages
+    for tag in graph_repo.tags:
+        if tag.name.startswith("marriage_"):
+            parts = tag.name.split('_')
+            if len(parts) == 3:
+                id1_short, id2_short = parts[1], parts[2]
+                if person_id.startswith(id1_short):
+                    partner_id = _get_full_id_from_short(graph_repo, id2_short)
+                    marriages.append((tag.commit, partner_id))
+                elif person_id.startswith(id2_short):
+                    partner_id = _get_full_id_from_short(graph_repo, id1_short)
+                    marriages.append((tag.commit, partner_id))
+
+    # Find children
+    _, children_map = _get_relationships(graph_repo, _get_all_people(data_repo))
+    if person_id in children_map:
+        children.extend(children_map[person_id])
+
+    return marriages, children
+
+
+def _get_full_id_from_short(graph_repo, short_id):
+    """Helper to get a full person ID from a short ID by checking tags."""
+    for tag in graph_repo.tags:
+        if tag.name == short_id:
+            # This assumes the tag name is the short_id of a person
+            # We need to find the person file to get the full ID
+            people_dir = Path(graph_repo.working_dir).parent / 'people'
+            for person_file in people_dir.glob(f"{short_id}*.yml"):
+                with open(person_file, 'r', encoding='utf-8') as f:
+                    person_data = yaml.safe_load(f)
+                    return person_data.get('id')
+    return short_id # Fallback
+
+
+def _delete_person_data(data_repo, person_id):
+    """Deletes the person's YAML file and commits the change."""
+    short_id = person_id[:8]
+    person_file_path = None
+    for f in (Path(data_repo.working_dir) / 'people').glob(f"{short_id}*.yml"):
+        person_file_path = f
+        break
+    
+    if not person_file_path or not person_file_path.exists():
+        click.secho(f"Warning: Could not find person file for ID {short_id}. It may have been already deleted.", fg='yellow')
+        return True
+
+    person_details = _get_person_name_by_id(data_repo, person_id)
+    person_name = person_details.get('name', person_id)
+    
+    try:
+        data_repo.index.remove([str(person_file_path)], working_tree=True)
+        data_repo.index.commit(f"feat: Remove data for person '{person_name}' ({short_id})")
+        click.echo(f"Removed person file: {person_file_path.name}")
+        return True
+    except Exception as e:
+        click.secho(f"Error removing person file: {e}", fg='red')
+        return False
+
+
+def _rewrite_history_for_removal(graph_repo, person_id, marriages, children):
+    """Rewrites the graph history to remove a person and their dependent commits."""
+    original_cwd = os.getcwd()
+    os.chdir(graph_repo.working_dir)
+
+    try:
+        # 1. Reparent children
+        if children:
+            graph_root_commit = graph_repo.tags['GRAPH_ROOT'].commit
+            if not _reparent_children(graph_repo, children, graph_root_commit):
+                return False
+
+        # 2. Get commits to remove
+        commits_to_remove = set()
+        person_commit = _find_person_commit_by_id(graph_repo, person_id)
+        if person_commit:
+            commits_to_remove.add(person_commit.hexsha)
+        for marriage_commit, _ in marriages:
+            commits_to_remove.add(marriage_commit.hexsha)
+
+        # 3. Use git-filter-repo to remove the commits
+        if commits_to_remove:
+            commits_to_remove_file = Path(graph_repo.git_dir) / "commits_to_remove.txt"
+            with open(commits_to_remove_file, "w") as f:
+                f.write("\n".join(commits_to_remove))
+
+            callback_code = f"""
+import sys
+with open(r'{commits_to_remove_file}', 'r') as f:
+    commits_to_remove = set(line.strip() for line in f)
+
+if commit.original_id.decode('utf-8') in commits_to_remove:
+    commit.skip()
+"""
+            
+            subprocess.run([
+                "git", "filter-repo",
+                "--commit-callback", callback_code,
+                "--force"
+            ], check=True)
+
+            commits_to_remove_file.unlink()
+
+
+        # 4. Remove tags
+        person_tag_name = person_id[:8]
+        if person_tag_name in graph_repo.tags:
+            graph_repo.delete_tag(person_tag_name)
+        for marriage_commit, partner_id in marriages:
+            marriage_tag_name1 = f"marriage_{person_id[:8]}_{partner_id[:8]}"
+            marriage_tag_name2 = f"marriage_{partner_id[:8]}_{person_id[:8]}"
+            if marriage_tag_name1 in graph_repo.tags:
+                graph_repo.delete_tag(marriage_tag_name1)
+            if marriage_tag_name2 in graph_repo.tags:
+                graph_repo.delete_tag(marriage_tag_name2)
+
+        click.echo("Graph history rewrite completed successfully.")
+        return True
+
+    except (subprocess.CalledProcessError, git.GitCommandError) as e:
+        click.secho(f"Error during history rewrite: {e}", fg='red')
+        return False
+    finally:
+        os.chdir(original_cwd)
+
+
+def _reparent_children(graph_repo, children, new_parent_commit):
+    """Reparents children to a new parent commit."""
+    original_cwd = os.getcwd()
+    os.chdir(graph_repo.working_dir)
+
+    try:
+        grafts = []
+        for child_id in children:
+            child_commit = _find_person_commit_by_id(graph_repo, child_id)
+            if child_commit:
+                grafts.append(f"{child_commit.hexsha} {new_parent_commit.hexsha}")
+
+        if not grafts:
+            return True
+
+        graft_file_path = Path(graph_repo.git_dir) / "info" / "grafts"
+        with open(graft_file_path, "w") as f:
+            f.write("\n".join(grafts))
+
+        subprocess.run([
+            "git", "filter-repo",
+            "--force"
+        ], check=True)
+
+        click.echo("Children reparented successfully.")
+        return True
+
+    except (subprocess.CalledProcessError, git.GitCommandError) as e:
+        click.secho(f"Error during children reparenting: {e}", fg='red')
+        return False
+    finally:
+        graft_file = Path(graph_repo.git_dir) / "info" / "grafts"
+        if graft_file.exists():
+            graft_file.unlink()
+        os.chdir(original_cwd)
