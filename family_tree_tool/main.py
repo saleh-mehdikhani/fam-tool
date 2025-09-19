@@ -257,8 +257,10 @@ def add_person(first_name, last_name, middle_name, birth_date, gender, nickname,
             if not marriage_commit:
                 father_details = _get_person_name_by_id(data_repo, resolved_father_id)
                 mother_details = _get_person_name_by_id(data_repo, resolved_mother_id)
-                print(f"Marriage between {father_details['first_name']} {father_details['last_name']} ({resolved_father_id}) and {mother_details['first_name']} {mother_details['last_name']} ({resolved_mother_id}) not found.")
-                if click.confirm(f"Do you want to create a marriage between {father_details['first_name']} {father_details['last_name']} and {mother_details['first_name']} {mother_details['last_name']} now?"):
+                father_name = click.style(f"{father_details['first_name']} {father_details['last_name']}", fg='yellow', bold=True)
+                mother_name = click.style(f"{mother_details['first_name']} {mother_details['last_name']}", fg='yellow', bold=True)
+                print(f"Marriage between {father_name} ({resolved_father_id}) and {mother_name} ({resolved_mother_id}) not found.")
+                if click.confirm(f"Do you want to create a marriage between {father_name} and {mother_name} now?"):
                     if not marry(resolved_father_id, resolved_mother_id, commit_submodule=False):
                         print("Error: Failed to create marriage.")
                         return False
@@ -619,8 +621,10 @@ def add_child(father_id, mother_id, child_id):
     else:
         father_details = _get_person_name_by_id(data_repo, resolved_father_id)
         mother_details = _get_person_name_by_id(data_repo, resolved_mother_id)
-        print(f"Marriage between {father_details['first_name']} {father_details['last_name']} ({resolved_father_id}) and {mother_details['first_name']} {mother_details['last_name']} ({resolved_mother_id}) not found.")
-        if click.confirm(f"Do you want to create a marriage between {father_details['first_name']} {father_details['last_name']} and {mother_details['first_name']} {mother_details['last_name']} now?"):
+        father_name = click.style(f"{father_details['first_name']} {father_details['last_name']}", fg='yellow', bold=True)
+        mother_name = click.style(f"{mother_details['first_name']} {mother_details['last_name']}", fg='yellow', bold=True)
+        print(f"Marriage between {father_name} ({resolved_father_id}) and {mother_name} ({resolved_mother_id}) not found.")
+        if click.confirm(f"Do you want to create a marriage between {father_name} and {mother_name} now?"):
             if not marry(resolved_father_id, resolved_mother_id):
                 print("Error: Failed to create marriage.")
                 return False
