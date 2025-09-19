@@ -63,7 +63,7 @@ def initialize_project(root_path_str):
         submodule = data_repo.create_submodule(
             name='family_graph',
             path='family_graph',
-            url=str(graph_source_path)
+            url=os.path.relpath(graph_source_path, root_path)
         )
         print("Added family_graph submodule.")
 
@@ -98,7 +98,7 @@ def initialize_remotes(data_remote, graph_remote):
         data_repo.create_remote('origin', data_remote)
 
         submodule = data_repo.submodule('family_graph')
-        subprocess.run(['git', 'config', '--file=.gitmodules', f'submodule.{submodule.name}.url', graph_remote], check=True, cwd=data_repo.working_dir)
+        submodule.set_url(graph_remote, 'family_graph')
         
         data_repo.index.add(['.gitmodules'])
         if data_repo.is_dirty():
