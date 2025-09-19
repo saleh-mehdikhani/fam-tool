@@ -538,7 +538,8 @@ def _make_child_rewrite_permanent(graph_repo, child_commit, marriage_commit):
         subprocess.run([
             "git", "filter-repo",
             "--replace-refs", "delete-no-add",
-            "--force"
+            "--force",
+            "--preserve-settings"
         ], check=True)
 
         print("History rewrite completed successfully.")
