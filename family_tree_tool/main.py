@@ -349,25 +349,9 @@ def marry(male, female, commit_submodule=True):
         return False # Abort if IDs cannot be resolved
 
     # Check if either person is already married
-    nodes = _get_all_people(data_repo)
-    _, children_map = _get_relationships(graph_repo, nodes)
-    
-    male_partners = [p for p, c in children_map.items() if resolved_male_id in c]
-    female_partners = [p for p, c in children_map.items() if resolved_female_id in c]
-
-    if male_partners:
-        male_details = _get_person_name_by_id(data_repo, resolved_male_id)
-        partner_details = _get_person_name_by_id(data_repo, male_partners[0])
-        if not click.confirm(f"{male_details['name']} is already married to {partner_details['name']}. Do you want to proceed with a new marriage?"):
-            print("Operation aborted by user.")
-            return False
-
-    if female_partners:
-        female_details = _get_person_name_by_id(data_repo, resolved_female_id)
-        partner_details = _get_person_name_by_id(data_repo, female_partners[0])
-        if not click.confirm(f"{female_details['name']} is already married to {partner_details['name']}. Do you want to proceed with a new marriage?"):
-            print("Operation aborted by user.")
-            return False
+    if _find_marriage_commit(graph_repo, resolved_male_id, resolved_female_id):
+        print("Error: Marriage already registered.")
+        return False
 
     try:
         male_commit = _find_person_commit_by_id(graph_repo, resolved_male_id)
