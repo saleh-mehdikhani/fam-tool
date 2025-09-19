@@ -86,7 +86,7 @@ def initialize_remotes(data_remote, graph_remote):
         data_repo.create_remote('origin', data_remote)
 
         submodule = data_repo.submodule('family_graph')
-        submodule.set_url(graph_remote, 'family_graph')
+        subprocess.run(['git', 'config', '--file=.gitmodules', f'submodule.{submodule.name}.url', graph_remote], check=True, cwd=data_repo.working_dir)
         
         data_repo.index.add(['.gitmodules'])
         if data_repo.is_dirty():
