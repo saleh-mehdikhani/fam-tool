@@ -348,6 +348,17 @@ def marry(male, female, commit_submodule=True):
     if not resolved_male_id or not resolved_female_id:
         return False # Abort if IDs cannot be resolved
 
+    nodes = _get_all_people(data_repo)
+    parents_map, _ = _get_relationships(graph_repo, nodes)
+
+    male_ancestors = _get_ancestors(resolved_male_id, parents_map)
+    female_ancestors = _get_ancestors(resolved_female_id, parents_map)
+
+    if resolved_male_id in female_ancestors or resolved_female_id in male_ancestors:
+        if not click.confirm("Warning: You are about to create a marriage between a person and their ancestor. Do you want to proceed?"):
+            print("Operation aborted by user.")
+            return False
+
     # Check if either person is already married
     if _find_marriage_commit(graph_repo, resolved_male_id, resolved_female_id):
         print("Error: Marriage already registered.")
