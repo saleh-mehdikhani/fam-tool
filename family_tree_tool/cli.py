@@ -15,12 +15,8 @@ def init(root_path):
     """Initializes a new family tree project at the specified path."""
     target_path = Path(root_path)
     if target_path.exists():
-        if not target_path.is_dir():
-            click.secho(f"Error: Target path '{root_path}' exists and is not a directory.", fg='red')
-            return
-        if os.listdir(target_path) and any(item not in ['venv', '.venv'] for item in os.listdir(target_path)):
-            click.secho(f"Error: Target directory '{root_path}' is not empty.", fg='red')
-            return
+        if os.listdir(target_path):
+            click.secho(f"Warning: Target directory '{root_path}' is not empty.", fg='yellow')
     else:
         try:
             target_path.mkdir(parents=True, exist_ok=False)

@@ -27,61 +27,49 @@ def find_repos():
 
 def initialize_project(root_path_str):
     """Creates a new family tree project at the specified path."""
-    # Resolve path first to enable reliable comparison
     root_path = Path(root_path_str).resolve()
-
-    graph_source_path = root_path.with_name(root_path.name + "_graph_source")
+    graph_path = root_path / 'family_graph'
 
     try:
-        # 1. Create and initialize the source graph repo
-        graph_source_repo = git.Repo.init(graph_source_path, initial_branch='main')
-        # Add README to graph_source_repo from resource file
-        readme_graph_path = Path(__file__).parent / "resources" / "README_graph.md"
-        (graph_source_path / 'README.md').write_text(readme_graph_path.read_text())
-        graph_source_repo.index.add(['README.md'])
-        # Add .gitignore to graph_source_repo from resource file
-        gitignore_template_path = Path(__file__).parent / "resources" / "gitignore_template"
-        (graph_source_path / '.gitignore').write_text(gitignore_template_path.read_text())
-        graph_source_repo.index.add(['.gitignore'])
-        graph_source_repo.git.commit('--allow-empty', '-m', "Graph Root")
-        graph_source_repo.create_tag("GRAPH_ROOT", message="Graph entry point")
-        print(f"Initialized graph source at: {graph_source_path}")
-
-        # 2. Initialize the main data repo
+        # 1. Initialize the main data repo
         data_repo = git.Repo.init(root_path, initial_branch='main')
-        # Add README to data_repo from resource file
         readme_data_path = Path(__file__).parent / "resources" / "README_data.md"
         (root_path / 'README.md').write_text(readme_data_path.read_text())
         data_repo.index.add(['README.md'])
-        # Add .gitignore to data_repo from resource file
         gitignore_template_path = Path(__file__).parent / "resources" / "gitignore_template"
         (root_path / '.gitignore').write_text(gitignore_template_path.read_text())
         data_repo.index.add(['.gitignore'])
         print(f"Initialized data repo at: {root_path}")
 
+        # 2. Initialize the graph repo
+        graph_repo = git.Repo.init(graph_path, initial_branch='main')
+        readme_graph_path = Path(__file__).parent / "resources" / "README_graph.md"
+        (graph_path / 'README.md').write_text(readme_graph_path.read_text())
+        graph_repo.index.add(['README.md'])
+        gitignore_template_path = Path(__file__).parent / "resources" / "gitignore_template"
+        (graph_path / '.gitignore').write_text(gitignore_template_path.read_text())
+        graph_repo.index.add(['.gitignore'])
+        graph_repo.index.commit("Initial commit")
+        graph_repo.git.commit('--allow-empty', '-m', "Graph Root")
+        graph_repo.create_tag("GRAPH_ROOT", message="Graph entry point")
+        print(f"Initialized graph repo at: {graph_path}")
+
         # 3. Add the graph repo as a submodule
-        submodule = data_repo.create_submodule(
-            name='family_graph',
-            path='family_graph',
-            url=os.path.relpath(graph_source_path, root_path)
-        )
+        subprocess.run(['git', 'submodule', 'add', '-b', 'main', './family_graph', 'family_graph'], check=True, cwd=root_path)
         print("Added family_graph submodule.")
 
         # 4. Create people directory and initial commit
         (root_path / 'people').mkdir()
-        # Add a .gitkeep to the empty directory so git tracks it
         (root_path / 'people' / '.gitkeep').touch()
 
         data_repo.index.add(['.gitmodules', 'people/.gitkeep'])
         data_repo.index.commit("Initial commit: Add family_graph submodule and people directory")
         print("Created initial commit.")
 
-    finally:
-        # 5. Clean up the temporary source repo
-        if graph_source_path.exists():
-            shutil.rmtree(graph_source_path)
-            print("Cleaned up graph source directory.")
-    
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        return False
+
     print(f"Successfully created new family tree project at {root_path}")
     return True
 
