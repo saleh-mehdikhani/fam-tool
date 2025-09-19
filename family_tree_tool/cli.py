@@ -18,7 +18,7 @@ def init(root_path):
         if not target_path.is_dir():
             click.secho(f"Error: Target path '{root_path}' exists and is not a directory.", fg='red')
             return
-        if os.listdir(target_path):
+        if os.listdir(target_path) and any(item not in ['venv', '.venv'] for item in os.listdir(target_path)):
             click.secho(f"Error: Target directory '{root_path}' is not empty.", fg='red')
             return
     else:
