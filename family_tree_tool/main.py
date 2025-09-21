@@ -216,7 +216,7 @@ def find_person_by_name(name):
     else:
         print("Found the following people:")
         for person in matches:
-            short_id = person['id'][:8] if person['id'] else 'N/A'
+            short_id = _get_short_id(person['id'])
             print(f"- {person['name']} (ID: {short_id})")
         return True
 
@@ -233,7 +233,7 @@ def add_person(first_name, last_name, middle_name, birth_date, gender, nickname,
 
     # 1. Generate ID and filename
     person_id = str(uuid.uuid4())
-    short_id = person_id[:8]
+    short_id = _get_short_id(person_id)
     filename = f"{short_id}_{first_name.lower()}_{last_name.lower()}.yml"
     filepath = Path(data_repo.working_dir) / 'people' / filename
 
@@ -375,8 +375,8 @@ def marry(male, female, commit_submodule=True):
             return False
 
         # Check if marriage already exists
-        marriage_tag1 = f"marriage_{resolved_male_id[:8]}_{resolved_female_id[:8]}"
-        marriage_tag2 = f"marriage_{resolved_female_id[:8]}_{resolved_male_id[:8]}"
+        marriage_tag1 = f"marriage_{_get_short_id(resolved_male_id)}_{_get_short_id(resolved_female_id)}"
+        marriage_tag2 = f"marriage_{_get_short_id(resolved_female_id)}_{_get_short_id(resolved_male_id)}"
         if marriage_tag1 in graph_repo.tags or marriage_tag2 in graph_repo.tags:
             print("Error: Marriage already registered.")
             return False
@@ -384,11 +384,11 @@ def marry(male, female, commit_submodule=True):
         # Create a merge commit
         merge_base = graph_repo.merge_base(male_commit, female_commit)
         graph_repo.index.merge_tree(female_commit, base=merge_base)
-        commit_message = f"Marriage: {resolved_male_id} and {resolved_female_id}"
+        commit_message = f"Marriage: {_get_short_id(resolved_male_id)} and {_get_short_id(resolved_female_id)}"
         marriage_commit = graph_repo.index.commit(commit_message, parent_commits=(male_commit, female_commit), head=False)
 
         # Tag the marriage commit
-        marriage_tag = f"marriage_{resolved_male_id[:8]}_{resolved_female_id[:8]}"
+        marriage_tag = f"marriage_{_get_short_id(resolved_male_id)}_{_get_short_id(resolved_female_id)}"
         graph_repo.create_tag(marriage_tag, ref=marriage_commit)
 
         print(f"Successfully created marriage event between {resolved_male_id} and {resolved_female_id}.")
@@ -415,7 +415,7 @@ def _find_person_commit_by_id(repo, person_id):
         return obj
     except git.BadName:
         # If not found by full ID, try by short ID (which is how person tags are created)
-        short_id = person_id[:8]
+        short_id = _get_short_id(person_id)
         try:
             obj = repo.rev_parse(short_id)
             if isinstance(obj, git.TagObject):
@@ -427,8 +427,8 @@ def _find_person_commit_by_id(repo, person_id):
 
 def _find_marriage_commit(repo, id1, id2):
     """Finds a marriage commit by two person IDs."""
-    marriage_tag_name1 = f"marriage_{id1[:8]}_{id2[:8]}"
-    marriage_tag_name2 = f"marriage_{id2[:8]}_{id1[:8]}"
+    marriage_tag_name1 = f"marriage_{_get_short_id(id1)}_{_get_short_id(id2)}"
+    marriage_tag_name2 = f"marriage_{_get_short_id(id2)}_{_get_short_id(id1)}"
     
     if marriage_tag_name1 in repo.tags:
         return repo.tags[marriage_tag_name1].commit
@@ -439,7 +439,7 @@ def _find_marriage_commit(repo, id1, id2):
 def _get_person_name_by_id(data_repo, person_id):
     """Retrieves a person's name details (first, last, full) from their YAML file."""
     people_dir = Path(data_repo.working_dir) / 'people'
-    for person_file in people_dir.glob(f"{person_id[:8]}*.yml"):
+    for person_file in people_dir.glob(f"{_get_short_id(person_id)}*.yml"):
         with open(person_file, 'r', encoding='utf-8') as f:
             person_data = yaml.safe_load(f)
             if person_data.get('id', '').startswith(person_id):
@@ -514,7 +514,7 @@ def _resolve_person_id_input(data_repo, input_str, role):
     else:
         print(f"Multiple people found matching '{input_str}' for {role}:")
         for i, person in enumerate(matches):
-            print(f"{i+1}. {person['first_name']} {person['last_name']} (ID: {person['id'][:8]})") # Display short ID
+            print(f"{i+1}. {person['first_name']} {person['last_name']} (ID: {_get_short_id(person['id'])})") # Display short ID
         
         while True:
             choice = click.prompt("Please enter the number corresponding to the correct person")
@@ -944,7 +944,7 @@ def list_people(name=None, show_children=False, show_parents=False):
     people_map = {p['id']: p for p in all_people}
 
     for person in sorted(people_to_list, key=lambda p: p.get('name', '')):
-        short_id = person['id'][:8] if person.get('id') else 'N/A'
+        short_id = _get_short_id(person.get('id'))
         click.secho(f"- {person.get('name', 'Unknown')} (ID: {short_id})", fg='cyan')
 
         if show_parents and person.get('id') in parents_map:
@@ -953,7 +953,7 @@ def list_people(name=None, show_children=False, show_parents=False):
             for parent_id in parent_ids:
                 parent_details = people_map.get(parent_id)
                 if parent_details:
-                    parent_short_id = parent_id[:8]
+                    parent_short_id = _get_short_id(parent_id)
                     click.echo(f"        - {parent_details.get('name', 'Unknown')} (ID: {parent_short_id})")
 
         if show_children and person.get('id') in children_map:
@@ -962,7 +962,7 @@ def list_people(name=None, show_children=False, show_parents=False):
             for child_id in child_ids:
                 child_details = people_map.get(child_id)
                 if child_details:
-                    child_short_id = child_id[:8]
+                    child_short_id = _get_short_id(child_id)
                     click.echo(f"        - {child_details.get('name', 'Unknown')} (ID: {child_short_id})")
     
     return True
@@ -1011,7 +1011,7 @@ def remove_person(person_id):
 
     # --- Final Commit ---
     data_repo.git.add('family_graph')
-    data_repo.index.commit(f"feat: Remove person '{person_name}' ({resolved_person_id[:8]})")
+    data_repo.index.commit(f"feat: Remove person '{person_name}' ({_get_short_id(resolved_person_id)})")
     click.secho(f"Successfully removed {person_name}.", fg='green')
     return True
 
@@ -1055,10 +1055,15 @@ def _get_full_id_from_short(graph_repo, short_id):
                     return person_data.get('id')
     return short_id # Fallback
 
+def _get_short_id(full_id):
+    """Returns the first 8 characters of a full ID."""
+    if full_id:
+        return full_id[:8]
+    return 'N/A'
 
 def _delete_person_data(data_repo, person_id):
     """Deletes the person's YAML file and commits the change."""
-    short_id = person_id[:8]
+    short_id = _get_short_id(person_id)
     person_file_path = None
     for f in (Path(data_repo.working_dir) / 'people').glob(f"{short_id}*.yml"):
         person_file_path = f
@@ -1073,7 +1078,7 @@ def _delete_person_data(data_repo, person_id):
     
     try:
         data_repo.index.remove([str(person_file_path)], working_tree=True)
-        data_repo.index.commit(f"feat: Remove data for person '{person_name}' ({short_id})")
+        data_repo.index.commit(f"feat: Remove data for person '{person_name}' ({_get_short_id(person_id)})")
         click.echo(f"Removed person file: {person_file_path.name}")
         return True
     except Exception as e:
@@ -1126,12 +1131,12 @@ if commit.original_id.decode('utf-8') in commits_to_remove:
 
 
         # 4. Remove tags
-        person_tag_name = person_id[:8]
+        person_tag_name = _get_short_id(person_id)
         if person_tag_name in graph_repo.tags:
             graph_repo.delete_tag(person_tag_name)
         for marriage_commit, partner_id in marriages:
-            marriage_tag_name1 = f"marriage_{person_id[:8]}_{partner_id[:8]}"
-            marriage_tag_name2 = f"marriage_{partner_id[:8]}_{person_id[:8]}"
+            marriage_tag_name1 = f"marriage_{_get_short_id(person_id)}_{_get_short_id(partner_id)}"
+            marriage_tag_name2 = f"marriage_{_get_short_id(partner_id)}_{_get_short_id(person_id)}"
             if marriage_tag_name1 in graph_repo.tags:
                 graph_repo.delete_tag(marriage_tag_name1)
             if marriage_tag_name2 in graph_repo.tags:
