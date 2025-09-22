@@ -405,25 +405,7 @@ def marry(male, female, commit_submodule=True):
         print(f"Error during git operation: {e}")
         return False
 
-def _find_person_commit_by_id(repo, person_id):
-    """Finds a person's commit in the graph repo by its short or long ID."""
-    try:
-        # Try to find by full ID (commit SHA or tag name if it's a full ID)
-        obj = repo.rev_parse(person_id)
-        if isinstance(obj, git.TagObject):
-            return obj.object
-        return obj
-    except git.BadName:
-        # If not found by full ID, try by short ID (which is how person tags are created)
-        short_id = _get_short_id(person_id)
-        try:
-            obj = repo.rev_parse(short_id)
-            if isinstance(obj, git.TagObject):
-                return obj.object
-            return obj
-        except git.BadName:
-            print(f"Error: Could not find person with ID '{person_id}'.")
-            return None
+
 
 def _find_marriage_commit(repo, id1, id2):
     """Finds a marriage commit by two person IDs."""
@@ -695,7 +677,7 @@ def list_people(name=None, show_children=False, show_parents=False):
 
 
 def remove_person(person_id):
-    """Removes a person from the family tree."""
+    """Removes a person from the family tree following the correct workflow."""
     data_repo, graph_repo = find_repos()
     if not data_repo or not graph_repo:
         click.secho("Error: Must be run from within a valid data repository with a 'family_graph' submodule.", fg='red')
@@ -712,14 +694,14 @@ def remove_person(person_id):
     marriages, children = _find_dependent_commits(data_repo, graph_repo, resolved_person_id)
 
     if marriages or children:
-        click.secho(f"Warning: Removing {person_name} will also remove the following:", fg='yellow')
+        click.secho(f"Warning: Removing {person_name} will also affect the following:", fg='yellow')
         if marriages:
-            click.echo("  - Marriages:")
+            click.echo("  - Removing marriages:")
             for marriage_commit, partner_id in marriages:
                 partner_details = _get_person_name_by_id(data_repo, partner_id)
                 click.echo(f"    - Marriage to {partner_details.get('name', partner_id)}")
         if children:
-            click.echo("  - Children:")
+            click.echo("  - No parents for children:")
             for child_id in children:
                 child_details = _get_person_name_by_id(data_repo, child_id)
                 click.echo(f"    - {child_details.get('name', child_id)}")
@@ -728,11 +710,47 @@ def remove_person(person_id):
             click.echo("Operation aborted.")
             return False
 
-    if not _rewrite_history_for_removal(graph_repo, resolved_person_id, marriages, children):
-        click.secho("Error: Failed to rewrite graph history. The data file has been removed, but the graph is now in an inconsistent state. Please restore the data file from git history and try again.", fg='red')
-        return False
+    # Follow the correct workflow:
+    # 1. If there are marriages, reparent children to root first
+    # 2. Delete marriage commits
+    # 3. Delete person commit
+    # 4. Remove YAML file
+    
+    original_cwd = os.getcwd()
+    os.chdir(graph_repo.working_dir)
+    
+    try:
+        # Step 1: Reparent children to root if there are marriages with children
+        if marriages and children:
+            graph_root_commit = graph_repo.tags['GRAPH_ROOT'].commit
+            if not _reparent_children_to_root(graph_repo, children, graph_root_commit):
+                click.secho("Error: Failed to reparent children.", fg='red')
+                return False
 
+        # Step 2: Remove marriage commits
+        for marriage_commit, _ in marriages:
+            if not _remove_single_commit(graph_repo, marriage_commit.hexsha):
+                click.secho("Error: Failed to remove marriage commit.", fg='red')
+                return False
+
+        # Step 3: Remove person commit
+        person_commit = _find_person_commit_by_id(graph_repo, resolved_person_id)
+        if person_commit:
+            if not _remove_single_commit(graph_repo, person_commit.hexsha):
+                click.secho("Error: Failed to remove person commit.", fg='red')
+                return False
+
+        click.echo("Graph operations completed successfully.")
+        
+    except Exception as e:
+        click.secho(f"Error during graph operations: {e}", fg='red')
+        return False
+    finally:
+        os.chdir(original_cwd)
+
+    # Step 4: Remove YAML file after all graph operations are complete
     if not _delete_person_data(data_repo, resolved_person_id):
+        click.secho("Error: Failed to delete person data file. The graph has been modified but data is inconsistent.", fg='red')
         return False
 
     # --- Final Commit ---
@@ -818,6 +836,9 @@ def _rewrite_history_for_removal(graph_repo, person_id, marriages, children):
     os.chdir(graph_repo.working_dir)
 
     try:
+        # Get data_repo for passing to helper functions
+        data_repo, _ = find_repos()
+        
         # 1. Reparent children
         if children:
             graph_root_commit = graph_repo.tags['GRAPH_ROOT'].commit
@@ -827,11 +848,11 @@ def _rewrite_history_for_removal(graph_repo, person_id, marriages, children):
         # 2. Remove commits using the new helper function
         person_commit = _find_person_commit_by_id(graph_repo, person_id)
         if person_commit:
-            if not remove_commit_from_graph(person_commit.hexsha):
+            if not remove_commit_from_graph(person_commit.hexsha, data_repo, graph_repo):
                 return False
         
         for marriage_commit, _ in marriages:
-            if not remove_commit_from_graph(marriage_commit.hexsha):
+            if not remove_commit_from_graph(marriage_commit.hexsha, data_repo, graph_repo):
                 return False
 
         click.echo("Graph history rewrite completed successfully.")
@@ -844,184 +865,72 @@ def _rewrite_history_for_removal(graph_repo, person_id, marriages, children):
         os.chdir(original_cwd)
 
 
-def _reparent_children(graph_repo, children, new_parent_commit):
-    """Reparents children to a new parent commit."""
-    original_cwd = os.getcwd()
-    os.chdir(graph_repo.working_dir)
-
+def _reparent_children_to_root(graph_repo, children, root_commit):
+    """Reparents multiple children commits to the graph root."""
     try:
-        grafts = []
+        # Process each child individually
         for child_id in children:
             child_commit = _find_person_commit_by_id(graph_repo, child_id)
             if child_commit:
-                grafts.append(f"{child_commit.hexsha} {new_parent_commit.hexsha}")
-
-        if not grafts:
-            return True
-
-        graft_file_path = Path(graph_repo.git_dir) / "info" / "grafts"
-        with open(graft_file_path, "w") as f:
-            f.write("\n".join(grafts))
-
-        subprocess.run([
-            "git", "filter-repo",
-            "--force"
-        ], check=True)
-
-        click.echo("Children reparented successfully.")
-        return True
-
-    except (subprocess.CalledProcessError, git.GitCommandError) as e:
-        click.secho(f"Error during children reparenting: {e}", fg='red')
-        return False
-    finally:
-        graft_file = Path(graph_repo.git_dir) / "info" / "grafts"
-        if graft_file.exists():
-            graft_file.unlink()
-        os.chdir(original_cwd)
-
-
-def remove_commit_from_graph(commit_sha):
-    """
-    Removes a commit from the submodule graph repository and reconstructs the git history.
-    
-    Args:
-        commit_sha (str): The SHA of the target commit to remove
-        
-    Returns:
-        bool: True if successful, False if validation fails or operation fails
-        
-    Raises:
-        ValueError: If commit_sha doesn't exist or has children commits
-    """
-    data_repo, graph_repo = find_repos()
-    if not data_repo or not graph_repo:
-        click.secho("Error: Must be run from within a valid data repository with a 'family_graph' submodule.", fg='red')
-        return False
-    
-    try:
-        # 1. Validate that the commit SHA exists in the graph repo
-        try:
-            target_commit = graph_repo.commit(commit_sha)
-        except (git.BadName, git.BadObject):
-            click.secho(f"Error: Commit SHA '{commit_sha}' does not exist in the graph repository.", fg='red')
-            return False
-        
-        # 2. Check if the commit has any children (commits that have this commit as parent)
-        children_commits = []
-        for commit in graph_repo.iter_commits('--all'):
-            if target_commit.hexsha in [parent.hexsha for parent in commit.parents]:
-                children_commits.append(commit)
-        
-        if children_commits:
-            click.secho(f"Error: Commit '{commit_sha}' has {len(children_commits)} child commit(s). Cannot remove a commit that has children.", fg='red')
-            click.secho("Child commits:", fg='yellow')
-            for child in children_commits:
-                click.secho(f"  - {child.hexsha[:8]}: {child.message.strip()}", fg='yellow')
-            return False
-        
-        # 3. Find and remove any tags pointing to this commit
-        tags_to_remove = []
-        for tag in graph_repo.tags:
-            if tag.commit.hexsha == target_commit.hexsha:
-                tags_to_remove.append(tag.name)
-        
-        # 4. Use git rebase to remove the commit from history
-        original_cwd = os.getcwd()
-        os.chdir(graph_repo.working_dir)
-        
-        try:
-            # First, find the parent commit of the target commit
-            parent_commits = target_commit.parents
-            if not parent_commits:
-                # This is a root commit, we need to create a new orphan branch
-                click.secho("Warning: Removing a root commit. This will create a new history.", fg='yellow')
+                click.echo(f"Reparenting child {_get_short_id(child_id)} to root {_get_short_id(root_commit.hexsha)}")
                 
-                # Get all branches that contain this commit
-                branches_with_commit = []
-                for branch in graph_repo.branches:
-                    if graph_repo.is_ancestor(target_commit, branch.commit):
-                        branches_with_commit.append(branch.name)
-                
-                # For each branch, rebase to exclude the target commit
-                for branch_name in branches_with_commit:
-                    # Create a new orphan branch starting from the first child of target_commit
-                    children = [c for c in graph_repo.iter_commits('--all') if target_commit.hexsha in [p.hexsha for p in c.parents]]
-                    if children:
-                        # Use git rebase to remove the commit
-                        subprocess.run([
-                            "git", "rebase", "--onto", children[0].hexsha, target_commit.hexsha, branch_name
-                        ], check=True, cwd=graph_repo.working_dir)
+                # Use git replace --graft to reparent the child to root
+                subprocess.run([
+                    "git", "replace", "--graft", child_commit.hexsha, root_commit.hexsha
+                ], check=True, cwd=graph_repo.working_dir)
             else:
-                # Use git rebase to remove the commit
-                parent_sha = parent_commits[0].hexsha
-                
-                # Get all branches that contain this commit
-                branches_with_commit = []
-                for branch in graph_repo.branches:
-                    try:
-                        if graph_repo.is_ancestor(target_commit, branch.commit):
-                            branches_with_commit.append(branch.name)
-                    except git.GitCommandError:
-                        # Branch might not be accessible, skip it
-                        continue
-                
-                # If no branches found, check if we're in detached HEAD state
-                if not branches_with_commit:
-                    try:
-                        current_commit = graph_repo.head.commit
-                        if graph_repo.is_ancestor(target_commit, current_commit):
-                            # We're in detached HEAD, rebase the current HEAD
-                            subprocess.run([
-                                "git", "rebase", "--onto", parent_sha, target_commit.hexsha, "HEAD"
-                            ], check=True, cwd=graph_repo.working_dir)
-                    except git.GitCommandError:
-                        pass
-                
-                # Rebase each branch to remove the target commit
-                for branch_name in branches_with_commit:
-                    try:
-                        subprocess.run([
-                            "git", "rebase", "--onto", parent_sha, target_commit.hexsha, branch_name
-                        ], check=True, cwd=graph_repo.working_dir)
-                    except subprocess.CalledProcessError as e:
-                        click.secho(f"Warning: Could not rebase branch {branch_name}: {e}", fg='yellow')
-                        continue
-            
-            # Remove the tags that were pointing to the removed commit
-            for tag_name in tags_to_remove:
-                try:
-                    graph_repo.delete_tag(tag_name)
-                    click.echo(f"Removed tag: {tag_name}")
-                except git.GitCommandError:
-                    # Tag might have been automatically removed by rebase
-                    pass
-            
-            # Force garbage collection to clean up the removed commit
-            subprocess.run(["git", "gc", "--prune=now"], cwd=graph_repo.working_dir, check=False)
-            
-            click.secho(f"Successfully removed commit '{commit_sha}' from graph repository.", fg='green')
-            
-            # 5. Commit the submodule update to the data repo
-            try:
-                data_repo.git.add('family_graph')
-                if data_repo.is_dirty():
-                    data_repo.index.commit(f"feat: Remove commit {commit_sha[:8]} from graph repository")
-                    click.echo("Committed graph changes to data repository.")
-            except git.GitCommandError as e:
-                click.secho(f"Warning: Could not commit submodule changes: {e}", fg='yellow')
-            
-            return True
-            
-        except subprocess.CalledProcessError as e:
-            click.secho(f"Error during git history rewrite: {e}", fg='red')
+                click.secho(f"Warning: Could not find commit for child {_get_short_id(child_id)}", fg='yellow')
+        
+        # Make all reparenting operations permanent with a single git filter-repo call
+        click.echo("Making reparenting permanent with git filter-repo...")
+        result = subprocess.run(['git', 'filter-repo', '--replace-refs', 'delete-no-add', '--force'], 
+                              cwd=graph_repo.working_dir, 
+                              capture_output=True, text=True)
+        
+        if result.returncode != 0:
+            click.secho(f"Error running git filter-repo: {result.stderr}", fg='red')
             return False
-        finally:
-            os.chdir(original_cwd)
             
+        click.echo(f"Successfully reparented {len(children)} children to root.")
+        return True
+        
     except Exception as e:
-        click.secho(f"Unexpected error: {e}", fg='red')
+        click.secho(f"Error reparenting children: {e}", fg='red')
         return False
+
+def _remove_single_commit(graph_repo, commit_sha):
+    """Remove a single commit from the graph using git filter-repo."""
+    try:
+        # Use git filter-repo to remove the specific commit
+        result = subprocess.run([
+            'git', 'filter-repo', '--commit-callback',
+            f'if commit.original_id == b"{commit_sha}": commit.skip()',
+            '--force'
+        ], cwd=graph_repo.working_dir, capture_output=True, text=True)
+        
+        if result.returncode != 0:
+            click.secho(f"Error removing commit {_get_short_id(commit_sha)}: {result.stderr}", fg='red')
+            return False
+            
+        return True
+        
+    except Exception as e:
+        click.secho(f"Error removing commit {_get_short_id(commit_sha)}: {e}", fg='red')
+        return False
+
+def _find_person_commit_by_id(graph_repo, person_id):
+    """Find the commit that added a specific person using the tag."""
+    try:
+        # Get the short ID and look for the corresponding tag
+        short_id = _get_short_id(person_id)
+        tag = graph_repo.tags[short_id]
+        return tag.commit
+    except (KeyError, IndexError) as e:
+        click.secho(f"Error finding person commit for {person_id}: tag '{_get_short_id(person_id)}' not found", fg='red')
+        return None
+    except Exception as e:
+        click.secho(f"Error finding person commit: {e}", fg='red')
+        return None
 
 
 def add_child(father_id, mother_id, child_id):
