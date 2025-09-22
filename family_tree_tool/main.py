@@ -558,280 +558,6 @@ def _make_child_rewrite_permanent(graph_repo, child_commit, marriage_commit):
         except Exception:
             pass
 
-def add_child(father_id, mother_id, child_id):
-    """Adds a child to a couple, creating the marriage if it doesn't exist."""
-    data_repo, graph_repo = find_repos()
-    if not data_repo or not graph_repo:
-        print("Error: Must be run from within a valid data repository with a 'family_graph' submodule.")
-        return False
-
-    graph_repo.head.reset(index=True, working_tree=True)
-
-    # 1. Find all parties.
-    resolved_father_id = _resolve_person_id_input(data_repo, father_id, "father")
-    resolved_mother_id = _resolve_person_id_input(data_repo, mother_id, "mother")
-    resolved_child_id = _resolve_person_id_input(data_repo, child_id, "child") # Child can also be by name
-
-    if not resolved_father_id or not resolved_mother_id or not resolved_child_id:
-        return False # Abort if IDs cannot be resolved
-
-    nodes = _get_all_people(data_repo)
-    parents_map, _ = _get_relationships(graph_repo, nodes)
-
-    father_ancestors = _get_ancestors(resolved_father_id, parents_map)
-    mother_ancestors = _get_ancestors(resolved_mother_id, parents_map)
-    
-    all_ancestors = father_ancestors.union(mother_ancestors)
-    all_ancestors.add(resolved_father_id)
-    all_ancestors.add(resolved_mother_id)
-
-    if resolved_child_id in all_ancestors:
-        print("Error: A person cannot be an ancestor of their own parents.")
-        return False
-
-    if _find_marriage_commit(graph_repo, resolved_child_id, resolved_father_id) or \
-       _find_marriage_commit(graph_repo, resolved_child_id, resolved_mother_id):
-        print("Error: A person cannot be a child of their partner.")
-        return False
-
-    # Check if the child is already a child of other parents
-    if resolved_child_id in parents_map:
-        child_details = _get_person_name_by_id(data_repo, resolved_child_id)
-        current_parents = parents_map[resolved_child_id]
-        parent_names = [_get_person_name_by_id(data_repo, p) for p in current_parents]
-        parent_names_str = " and ".join([p['name'] for p in parent_names])
-        if not click.confirm(f"{child_details['name']} is already a child of {parent_names_str}. Do you want to move them to the new parents?"):
-            print("Operation aborted by user.")
-            return False
-
-    father_commit = _find_person_commit_by_id(graph_repo, resolved_father_id)
-    mother_commit = _find_person_commit_by_id(graph_repo, resolved_mother_id)
-    child_commit = _find_person_commit_by_id(graph_repo, resolved_child_id)
-
-    if not all([father_commit, mother_commit, child_commit]):
-        print("Error: Could not find father, mother, or child.")
-        return False
-
-
-    # 2. Find or create the marriage.
-    marriage_commit = _find_marriage_commit(graph_repo, resolved_father_id, resolved_mother_id)
-
-    if marriage_commit:
-        print("Found existing marriage.")
-    else:
-        father_details = _get_person_name_by_id(data_repo, resolved_father_id)
-        mother_details = _get_person_name_by_id(data_repo, resolved_mother_id)
-        father_name = click.style(f"{father_details['first_name']} {father_details['last_name']}", fg='yellow', bold=True)
-        mother_name = click.style(f"{mother_details['first_name']} {mother_details['last_name']}", fg='yellow', bold=True)
-        print(f"Marriage between {father_name} ({resolved_father_id}) and {mother_name} ({resolved_mother_id}) not found.")
-        if click.confirm(f"Do you want to create a marriage between {father_name} and {mother_name} now?"):
-            if not marry(resolved_father_id, resolved_mother_id):
-                print("Error: Failed to create marriage.")
-                return False
-            # After marry, the tag should exist, so we can find the commit
-            marriage_commit = _find_marriage_commit(graph_repo, resolved_father_id, resolved_mother_id)
-            if not marriage_commit: # Should not happen if marry was successful
-                print("Error: Marriage was created but commit could not be found.")
-                return False
-            graph_repo.head.reset(index=True, working_tree=True)
-        else:
-            print("Operation aborted by user.")
-            return False
-
-    # 3. Rewrite history to make the child a child of the marriage.
-    if not _make_child_rewrite_permanent(graph_repo, child_commit, marriage_commit):
-        return False
-
-    # 4. Update tags
-    commit_map_path = os.path.join(graph_repo.git_dir, "filter-repo", "commit-map")
-    if os.path.exists(commit_map_path):
-        commit_map = {}
-        with open(commit_map_path, "r") as f:
-            for line in f:
-                old_sha, new_sha = line.strip().split()
-                commit_map[old_sha] = new_sha
-
-        for tag in graph_repo.tags:
-            if tag.commit.hexsha in commit_map:
-                new_commit = graph_repo.commit(commit_map[tag.commit.hexsha])
-                if tag.tag is not None:  # annotated tag
-                    graph_repo.create_tag(tag.name, ref=new_commit, force=True, message=tag.tag.message)
-                else:  # lightweight tag
-                    graph_repo.create_tag(tag.name, ref=new_commit, force=True)
-
-    print(f"Successfully added {resolved_child_id} as a child of {resolved_father_id} and {resolved_mother_id}.")
-
-    # Commit submodule update to data repo
-    data_repo.git.add('family_graph')
-    data_repo.index.commit(f"feat: Add child {resolved_child_id} to {resolved_father_id} and {resolved_mother_id}")
-    print("Committed child relationship to data repository.")
-
-    return True
-
-def run_report():
-    """Provides a report on the health and statistics of the family tree data."""
-    data_repo, graph_repo = find_repos()
-    if not data_repo or not graph_repo:
-        print("Error: Must be run from within a valid data repository with a 'family_graph' submodule.")
-        return
-
-    print("Running report...")
-    print("Checking for cycles in the family graph...")
-    
-    nodes = _get_all_people(data_repo)
-    edges = _get_edges(graph_repo, nodes)
-    
-    cycle = _find_cycle_in_graph(nodes, edges)
-
-    if cycle:
-        print("\n--- Cycle Detected! ---")
-        print("The following people form a cycle in the family tree, which is not allowed:")
-        node_map = {node['id']: node for node in nodes}
-        for i, node_id in enumerate(cycle):
-            person = node_map.get(node_id)
-            print(f"  {i+1}. {person.get('name', 'Unknown')} (ID: {node_id[:8]})")
-        print("\nThis is likely due to data corruption. You may need to manually correct the relationships.")
-    else:
-        print("No cycles found. The graph structure is valid.")
-
-    # Future reports can be added here.
-
-def _find_cycle_in_graph(nodes, edges):
-    """Finds a cycle in the graph using DFS."""
-    adj_list = {}
-    for edge in edges:
-        if edge['type'] == 'child':
-            parent_id = edge['from']
-            child_id = edge['to']
-            if parent_id not in adj_list:
-                adj_list[parent_id] = []
-            adj_list[parent_id].append(child_id)
-
-    white_set = {node['id'] for node in nodes}
-    gray_set = set()
-    black_set = set()
-    recursion_path = []
-
-    for node_id in list(white_set):
-        if node_id in white_set:
-            cycle = _dfs_cycle_check(node_id, adj_list, white_set, gray_set, black_set, recursion_path)
-            if cycle:
-                return cycle
-    return None
-
-def _dfs_cycle_check(node_id, adj_list, white_set, gray_set, black_set, path):
-    white_set.remove(node_id)
-    gray_set.add(node_id)
-    path.append(node_id)
-
-    for neighbor_id in adj_list.get(node_id, []):
-        if neighbor_id in gray_set:
-            # Cycle detected
-            cycle_start_index = path.index(neighbor_id)
-            return path[cycle_start_index:]
-        if neighbor_id in white_set:
-            cycle = _dfs_cycle_check(neighbor_id, adj_list, white_set, gray_set, black_set, path)
-            if cycle:
-                return cycle
-
-    path.pop()
-    gray_set.remove(node_id)
-    black_set.add(node_id)
-    return None
-
-def _calculate_generations(nodes, edges):
-
-    node_map = {node['id']: node for node in nodes}
-
-    # Initial setup: find roots (those who are not children) and set their generation to 0.
-    child_ids = set(edge['to'] for edge in edges if edge['type'] == 'child')
-    for node in nodes:
-        node['generation'] = 0 if node['id'] not in child_ids else -1
-
-    # Iteratively propagate generations until no more changes are made
-    changed_in_pass = True
-    pass_count = 0
-    max_passes = len(nodes) * 2 # A generous limit to prevent infinite loops
-    
-    print("Calculating generations...")
-    while changed_in_pass:
-        pass_count += 1
-        if pass_count > max_passes:
-            print("Warning: Generation calculation took too many passes. Aborting.")
-            break
-        
-        changed_in_pass = False
-
-        # Pass 1: Propagate generations to children
-        for edge in edges:
-            if edge['type'] == 'child':
-                parent = node_map.get(edge['from'])
-                child = node_map.get(edge['to'])
-                if parent and child and parent['generation'] != -1:
-                    new_gen = parent['generation'] + 1
-                    if child['generation'] == -1 or new_gen > child['generation']:
-                        child['generation'] = new_gen
-                        changed_in_pass = True
-
-        # Pass 2: Propagate generations to partners
-        for edge in edges:
-            if edge['type'] == 'partner':
-                p1 = node_map.get(edge['from'])
-                p2 = node_map.get(edge['to'])
-                if p1 and p2:
-                    max_gen = max(p1['generation'], p2['generation'])
-                    if p1['generation'] != max_gen:
-                        p1['generation'] = max_gen
-                        changed_in_pass = True
-                    if p2['generation'] != max_gen:
-                        p2['generation'] = max_gen
-                        changed_in_pass = True
-    print("Generation calculation complete.")
-
-def _get_edges(graph_repo, nodes):
-    """Extracts all partner and child edges from the graph repository."""
-    edges = []
-    
-    all_tags = graph_repo.tags
-    marriage_tags = [tag for tag in all_tags if tag.name.startswith("marriage_")]
-    marriage_commit_to_tag = {tag.commit.hexsha: tag for tag in marriage_tags}
-
-    # Find partner edges from marriage tags
-    for tag in marriage_tags:
-        parts = tag.name.split('_')
-        if len(parts) == 3:
-            id1_short = parts[1]
-            id2_short = parts[2]
-            id1_full = next((node['id'] for node in nodes if node['id'].startswith(id1_short)), None)
-            id2_full = next((node['id'] for node in nodes if node['id'].startswith(id2_short)), None)
-            if id1_full and id2_full:
-                edges.append({"from": id1_full, "to": id2_full, "type": "partner"})
-
-    # Find child edges from person tags
-    person_tags = [tag for tag in all_tags if not tag.name.startswith("marriage_") and tag.name != "GRAPH_ROOT"]
-    for tag in person_tags:
-        child_commit = tag.commit
-        child_id_short = tag.name
-        child_id_full = next((node['id'] for node in nodes if node['id'].startswith(child_id_short)), None)
-
-        if child_id_full and child_commit.parents:
-            for parent_commit in child_commit.parents:
-                if parent_commit.hexsha in marriage_commit_to_tag:
-                    marriage_tag = marriage_commit_to_tag[parent_commit.hexsha]
-                    marriage_tag_name = marriage_tag.name
-                    
-                    parts = marriage_tag_name.split('_')
-                    if len(parts) == 3:
-                        p1_short = parts[1]
-                        p2_short = parts[2]
-                        p1_full = next((node['id'] for node in nodes if node['id'].startswith(p1_short)), None)
-                        p2_full = next((node['id'] for node in nodes if node['id'].startswith(p2_short)), None)
-                        if p1_full and p2_full:
-                            # Add child edge for both parents
-                            edges.append({"from": p1_full, "to": child_id_full, "type": "child"})
-                            edges.append({"from": p2_full, "to": child_id_full, "type": "child"})
-    return edges
-
 def export_to_json(output_filename):
     data_repo, graph_repo = find_repos()
     if not data_repo or not graph_repo:
@@ -1098,49 +824,15 @@ def _rewrite_history_for_removal(graph_repo, person_id, marriages, children):
             if not _reparent_children(graph_repo, children, graph_root_commit):
                 return False
 
-        # 2. Get commits to remove
-        commits_to_remove = set()
+        # 2. Remove commits using the new helper function
         person_commit = _find_person_commit_by_id(graph_repo, person_id)
         if person_commit:
-            commits_to_remove.add(person_commit.hexsha)
+            if not remove_commit_from_graph(person_commit.hexsha):
+                return False
+        
         for marriage_commit, _ in marriages:
-            commits_to_remove.add(marriage_commit.hexsha)
-
-        # 3. Use git-filter-repo to remove the commits
-        if commits_to_remove:
-            commits_to_remove_file = Path(graph_repo.git_dir) / "commits_to_remove.txt"
-            with open(commits_to_remove_file, "w") as f:
-                f.write("\n".join(commits_to_remove))
-
-            callback_code = f"""
-import sys
-with open(r'{commits_to_remove_file}', 'r') as f:
-    commits_to_remove = set(line.strip() for line in f)
-
-if commit.original_id.decode('utf-8') in commits_to_remove:
-    commit.skip()
-"""
-            
-            subprocess.run([
-                "git", "filter-repo",
-                "--commit-callback", callback_code,
-                "--force"
-            ], check=True)
-
-            commits_to_remove_file.unlink()
-
-
-        # 4. Remove tags
-        person_tag_name = _get_short_id(person_id)
-        if person_tag_name in graph_repo.tags:
-            graph_repo.delete_tag(person_tag_name)
-        for marriage_commit, partner_id in marriages:
-            marriage_tag_name1 = f"marriage_{_get_short_id(person_id)}_{_get_short_id(partner_id)}"
-            marriage_tag_name2 = f"marriage_{_get_short_id(partner_id)}_{_get_short_id(person_id)}"
-            if marriage_tag_name1 in graph_repo.tags:
-                graph_repo.delete_tag(marriage_tag_name1)
-            if marriage_tag_name2 in graph_repo.tags:
-                graph_repo.delete_tag(marriage_tag_name2)
+            if not remove_commit_from_graph(marriage_commit.hexsha):
+                return False
 
         click.echo("Graph history rewrite completed successfully.")
         return True
@@ -1187,3 +879,510 @@ def _reparent_children(graph_repo, children, new_parent_commit):
         if graft_file.exists():
             graft_file.unlink()
         os.chdir(original_cwd)
+
+
+def remove_commit_from_graph(commit_sha):
+    """
+    Removes a commit from the submodule graph repository and reconstructs the git history.
+    
+    Args:
+        commit_sha (str): The SHA of the target commit to remove
+        
+    Returns:
+        bool: True if successful, False if validation fails or operation fails
+        
+    Raises:
+        ValueError: If commit_sha doesn't exist or has children commits
+    """
+    data_repo, graph_repo = find_repos()
+    if not data_repo or not graph_repo:
+        click.secho("Error: Must be run from within a valid data repository with a 'family_graph' submodule.", fg='red')
+        return False
+    
+    try:
+        # 1. Validate that the commit SHA exists in the graph repo
+        try:
+            target_commit = graph_repo.commit(commit_sha)
+        except (git.BadName, git.BadObject):
+            click.secho(f"Error: Commit SHA '{commit_sha}' does not exist in the graph repository.", fg='red')
+            return False
+        
+        # 2. Check if the commit has any children (commits that have this commit as parent)
+        children_commits = []
+        for commit in graph_repo.iter_commits('--all'):
+            if target_commit.hexsha in [parent.hexsha for parent in commit.parents]:
+                children_commits.append(commit)
+        
+        if children_commits:
+            click.secho(f"Error: Commit '{commit_sha}' has {len(children_commits)} child commit(s). Cannot remove a commit that has children.", fg='red')
+            click.secho("Child commits:", fg='yellow')
+            for child in children_commits:
+                click.secho(f"  - {child.hexsha[:8]}: {child.message.strip()}", fg='yellow')
+            return False
+        
+        # 3. Find and remove any tags pointing to this commit
+        tags_to_remove = []
+        for tag in graph_repo.tags:
+            if tag.commit.hexsha == target_commit.hexsha:
+                tags_to_remove.append(tag.name)
+        
+        # 4. Use git rebase to remove the commit from history
+        original_cwd = os.getcwd()
+        os.chdir(graph_repo.working_dir)
+        
+        try:
+            # First, find the parent commit of the target commit
+            parent_commits = target_commit.parents
+            if not parent_commits:
+                # This is a root commit, we need to create a new orphan branch
+                click.secho("Warning: Removing a root commit. This will create a new history.", fg='yellow')
+                
+                # Get all branches that contain this commit
+                branches_with_commit = []
+                for branch in graph_repo.branches:
+                    if graph_repo.is_ancestor(target_commit, branch.commit):
+                        branches_with_commit.append(branch.name)
+                
+                # For each branch, rebase to exclude the target commit
+                for branch_name in branches_with_commit:
+                    # Create a new orphan branch starting from the first child of target_commit
+                    children = [c for c in graph_repo.iter_commits('--all') if target_commit.hexsha in [p.hexsha for p in c.parents]]
+                    if children:
+                        # Use git rebase to remove the commit
+                        subprocess.run([
+                            "git", "rebase", "--onto", children[0].hexsha, target_commit.hexsha, branch_name
+                        ], check=True, cwd=graph_repo.working_dir)
+            else:
+                # Use git rebase to remove the commit
+                parent_sha = parent_commits[0].hexsha
+                
+                # Get all branches that contain this commit
+                branches_with_commit = []
+                for branch in graph_repo.branches:
+                    try:
+                        if graph_repo.is_ancestor(target_commit, branch.commit):
+                            branches_with_commit.append(branch.name)
+                    except git.GitCommandError:
+                        # Branch might not be accessible, skip it
+                        continue
+                
+                # If no branches found, check if we're in detached HEAD state
+                if not branches_with_commit:
+                    try:
+                        current_commit = graph_repo.head.commit
+                        if graph_repo.is_ancestor(target_commit, current_commit):
+                            # We're in detached HEAD, rebase the current HEAD
+                            subprocess.run([
+                                "git", "rebase", "--onto", parent_sha, target_commit.hexsha, "HEAD"
+                            ], check=True, cwd=graph_repo.working_dir)
+                    except git.GitCommandError:
+                        pass
+                
+                # Rebase each branch to remove the target commit
+                for branch_name in branches_with_commit:
+                    try:
+                        subprocess.run([
+                            "git", "rebase", "--onto", parent_sha, target_commit.hexsha, branch_name
+                        ], check=True, cwd=graph_repo.working_dir)
+                    except subprocess.CalledProcessError as e:
+                        click.secho(f"Warning: Could not rebase branch {branch_name}: {e}", fg='yellow')
+                        continue
+            
+            # Remove the tags that were pointing to the removed commit
+            for tag_name in tags_to_remove:
+                try:
+                    graph_repo.delete_tag(tag_name)
+                    click.echo(f"Removed tag: {tag_name}")
+                except git.GitCommandError:
+                    # Tag might have been automatically removed by rebase
+                    pass
+            
+            # Force garbage collection to clean up the removed commit
+            subprocess.run(["git", "gc", "--prune=now"], cwd=graph_repo.working_dir, check=False)
+            
+            click.secho(f"Successfully removed commit '{commit_sha}' from graph repository.", fg='green')
+            
+            # 5. Commit the submodule update to the data repo
+            try:
+                data_repo.git.add('family_graph')
+                if data_repo.is_dirty():
+                    data_repo.index.commit(f"feat: Remove commit {commit_sha[:8]} from graph repository")
+                    click.echo("Committed graph changes to data repository.")
+            except git.GitCommandError as e:
+                click.secho(f"Warning: Could not commit submodule changes: {e}", fg='yellow')
+            
+            return True
+            
+        except subprocess.CalledProcessError as e:
+            click.secho(f"Error during git history rewrite: {e}", fg='red')
+            return False
+        finally:
+            os.chdir(original_cwd)
+            
+    except Exception as e:
+        click.secho(f"Unexpected error: {e}", fg='red')
+        return False
+
+
+def add_child(father_id, mother_id, child_id):
+    """Adds a child to a couple, creating the marriage if it doesn't exist."""
+    data_repo, graph_repo = find_repos()
+    if not data_repo or not graph_repo:
+        print("Error: Must be run from within a valid data repository with a 'family_graph' submodule.")
+        return False
+
+    graph_repo.head.reset(index=True, working_tree=True)
+
+    # 1. Find all parties.
+    resolved_father_id = _resolve_person_id_input(data_repo, father_id, "father")
+    resolved_mother_id = _resolve_person_id_input(data_repo, mother_id, "mother")
+    resolved_child_id = _resolve_person_id_input(data_repo, child_id, "child") # Child can also be by name
+
+    if not resolved_father_id or not resolved_mother_id or not resolved_child_id:
+        return False # Abort if IDs cannot be resolved
+
+    nodes = _get_all_people(data_repo)
+    parents_map, _ = _get_relationships(graph_repo, nodes)
+
+    father_ancestors = _get_ancestors(resolved_father_id, parents_map)
+    mother_ancestors = _get_ancestors(resolved_mother_id, parents_map)
+    
+    all_ancestors = father_ancestors.union(mother_ancestors)
+    all_ancestors.add(resolved_father_id)
+    all_ancestors.add(resolved_mother_id)
+
+    if resolved_child_id in all_ancestors:
+        print("Error: A person cannot be an ancestor of their own parents.")
+        return False
+
+    if _find_marriage_commit(graph_repo, resolved_child_id, resolved_father_id) or \
+       _find_marriage_commit(graph_repo, resolved_child_id, resolved_mother_id):
+        print("Error: A person cannot be a child of their partner.")
+        return False
+
+    # Check if the child is already a child of other parents
+    if resolved_child_id in parents_map:
+        child_details = _get_person_name_by_id(data_repo, resolved_child_id)
+        current_parents = parents_map[resolved_child_id]
+        parent_names = [_get_person_name_by_id(data_repo, p) for p in current_parents]
+        parent_names_str = " and ".join([p['name'] for p in parent_names])
+        if not click.confirm(f"{child_details['name']} is already a child of {parent_names_str}. Do you want to move them to the new parents?"):
+            print("Operation aborted by user.")
+            return False
+
+    father_commit = _find_person_commit_by_id(graph_repo, resolved_father_id)
+    mother_commit = _find_person_commit_by_id(graph_repo, resolved_mother_id)
+    child_commit = _find_person_commit_by_id(graph_repo, resolved_child_id)
+
+    if not all([father_commit, mother_commit, child_commit]):
+        print("Error: Could not find father, mother, or child.")
+        return False
+
+
+    # 2. Find or create the marriage.
+    marriage_commit = _find_marriage_commit(graph_repo, resolved_father_id, resolved_mother_id)
+
+    if marriage_commit:
+        print("Found existing marriage.")
+    else:
+        father_details = _get_person_name_by_id(data_repo, resolved_father_id)
+        mother_details = _get_person_name_by_id(data_repo, resolved_mother_id)
+        father_name = click.style(f"{father_details['first_name']} {father_details['last_name']}", fg='yellow', bold=True)
+        mother_name = click.style(f"{mother_details['first_name']} {mother_details['last_name']}", fg='yellow', bold=True)
+        print(f"Marriage between {father_name} ({resolved_father_id}) and {mother_name} ({resolved_mother_id}) not found.")
+        if click.confirm(f"Do you want to create a marriage between {father_name} and {mother_name} now?"):
+            if not marry(resolved_father_id, resolved_mother_id):
+                print("Error: Failed to create marriage.")
+                return False
+            # After marry, the tag should exist, so we can find the commit
+            marriage_commit = _find_marriage_commit(graph_repo, resolved_father_id, resolved_mother_id)
+            if not marriage_commit: # Should not happen if marry was successful
+                print("Error: Marriage was created but commit could not be found.")
+                return False
+            graph_repo.head.reset(index=True, working_tree=True)
+        else:
+            print("Operation aborted by user.")
+            return False
+
+    # 3. Rewrite history to make the child a child of the marriage using the new helper function.
+    if not change_commit_parent(child_commit.hexsha, marriage_commit.hexsha):
+        return False
+
+    print(f"Successfully added {resolved_child_id} as a child of {resolved_father_id} and {resolved_mother_id}.")
+
+    # Commit submodule update to data repo
+    data_repo.git.add('family_graph')
+    data_repo.index.commit(f"feat: Add child {resolved_child_id} to {resolved_father_id} and {resolved_mother_id}")
+    print("Committed child relationship to data repository.")
+
+    return True
+
+def run_report():
+    """Provides a report on the health and statistics of the family tree data."""
+    data_repo, graph_repo = find_repos()
+    if not data_repo or not graph_repo:
+        print("Error: Must be run from within a valid data repository with a 'family_graph' submodule.")
+        return
+
+    print("Running report...")
+    print("Checking for cycles in the family graph...")
+    
+    nodes = _get_all_people(data_repo)
+    edges = _get_edges(graph_repo, nodes)
+    
+    cycle = _find_cycle_in_graph(nodes, edges)
+
+    if cycle:
+        print("\n--- Cycle Detected! ---")
+        print("The following people form a cycle in the family tree, which is not allowed:")
+        node_map = {node['id']: node for node in nodes}
+        for i, node_id in enumerate(cycle):
+            person = node_map.get(node_id)
+            print(f"  {i+1}. {person.get('name', 'Unknown')} (ID: {node_id[:8]})")
+        print("\nThis is likely due to data corruption. You may need to manually correct the relationships.")
+    else:
+        print("No cycles found. The graph structure is valid.")
+
+    # Future reports can be added here.
+
+def _find_cycle_in_graph(nodes, edges):
+    """Finds a cycle in the graph using DFS."""
+    adj_list = {}
+    for edge in edges:
+        if edge['type'] == 'child':
+            parent_id = edge['from']
+            child_id = edge['to']
+            if parent_id not in adj_list:
+                adj_list[parent_id] = []
+            adj_list[parent_id].append(child_id)
+
+    white_set = {node['id'] for node in nodes}
+    gray_set = set()
+    black_set = set()
+    recursion_path = []
+
+    for node_id in list(white_set):
+        if node_id in white_set:
+            cycle = _dfs_cycle_check(node_id, adj_list, white_set, gray_set, black_set, recursion_path)
+            if cycle:
+                return cycle
+    return None
+
+def _dfs_cycle_check(node_id, adj_list, white_set, gray_set, black_set, path):
+    white_set.remove(node_id)
+    gray_set.add(node_id)
+    path.append(node_id)
+
+    for neighbor_id in adj_list.get(node_id, []):
+        if neighbor_id in gray_set:
+            # Cycle detected
+            cycle_start_index = path.index(neighbor_id)
+            return path[cycle_start_index:]
+        if neighbor_id in white_set:
+            cycle = _dfs_cycle_check(neighbor_id, adj_list, white_set, gray_set, black_set, path)
+            if cycle:
+                return cycle
+
+    path.pop()
+    gray_set.remove(node_id)
+    black_set.add(node_id)
+    return None
+
+def _calculate_generations(nodes, edges):
+
+    node_map = {node['id']: node for node in nodes}
+
+    # Initial setup: find roots (those who are not children) and set their generation to 0.
+    child_ids = set(edge['to'] for edge in edges if edge['type'] == 'child')
+    for node in nodes:
+        node['generation'] = 0 if node['id'] not in child_ids else -1
+
+    # Iteratively propagate generations until no more changes are made
+    changed_in_pass = True
+    pass_count = 0
+    max_passes = len(nodes) * 2 # A generous limit to prevent infinite loops
+    
+    print("Calculating generations...")
+    while changed_in_pass:
+        pass_count += 1
+        if pass_count > max_passes:
+            print("Warning: Generation calculation took too many passes. Aborting.")
+            break
+        
+        changed_in_pass = False
+
+        # Pass 1: Propagate generations to children
+        for edge in edges:
+            if edge['type'] == 'child':
+                parent = node_map.get(edge['from'])
+                child = node_map.get(edge['to'])
+                if parent and child and parent['generation'] != -1:
+                    new_gen = parent['generation'] + 1
+                    if child['generation'] == -1 or new_gen > child['generation']:
+                        child['generation'] = new_gen
+                        changed_in_pass = True
+
+        # Pass 2: Propagate generations to partners
+        for edge in edges:
+            if edge['type'] == 'partner':
+                p1 = node_map.get(edge['from'])
+                p2 = node_map.get(edge['to'])
+                if p1 and p2:
+                    max_gen = max(p1['generation'], p2['generation'])
+                    if p1['generation'] != max_gen:
+                        p1['generation'] = max_gen
+                        changed_in_pass = True
+                    if p2['generation'] != max_gen:
+                        p2['generation'] = max_gen
+                        changed_in_pass = True
+    print("Generation calculation complete.")
+
+def _get_edges(graph_repo, nodes):
+    """Extracts all partner and child edges from the graph repository."""
+    edges = []
+    
+    all_tags = graph_repo.tags
+    marriage_tags = [tag for tag in all_tags if tag.name.startswith("marriage_")]
+    marriage_commit_to_tag = {tag.commit.hexsha: tag for tag in marriage_tags}
+
+    # Find partner edges from marriage tags
+    for tag in marriage_tags:
+        parts = tag.name.split('_')
+        if len(parts) == 3:
+            id1_short = parts[1]
+            id2_short = parts[2]
+            id1_full = next((node['id'] for node in nodes if node['id'].startswith(id1_short)), None)
+            id2_full = next((node['id'] for node in nodes if node['id'].startswith(id2_short)), None)
+            if id1_full and id2_full:
+                edges.append({"from": id1_full, "to": id2_full, "type": "partner"})
+
+    # Find child edges from person tags
+    person_tags = [tag for tag in all_tags if not tag.name.startswith("marriage_") and tag.name != "GRAPH_ROOT"]
+    for tag in person_tags:
+        child_commit = tag.commit
+        child_id_short = tag.name
+        child_id_full = next((node['id'] for node in nodes if node['id'].startswith(child_id_short)), None)
+
+        if child_id_full and child_commit.parents:
+            for parent_commit in child_commit.parents:
+                if parent_commit.hexsha in marriage_commit_to_tag:
+                    marriage_tag = marriage_commit_to_tag[parent_commit.hexsha]
+                    parts = marriage_tag.name.split('_')
+                    if len(parts) == 3:
+                        parent1_short = parts[1]
+                        parent2_short = parts[2]
+                        parent1_full = next((node['id'] for node in nodes if node['id'].startswith(parent1_short)), None)
+                        parent2_full = next((node['id'] for node in nodes if node['id'].startswith(parent2_short)), None)
+                        if parent1_full and parent2_full:
+                            edges.append({"from": parent1_full, "to": child_id_full, "type": "child"})
+                            edges.append({"from": parent2_full, "to": child_id_full, "type": "child"})
+
+    return edges
+
+
+def change_commit_parent(target_commit_sha, new_parent_sha):
+    """
+    Changes the parent of a target commit to a new parent commit using git replace + git filter-repo.
+    This preserves all tags and maintains child relationships.
+    
+    Args:
+        target_commit_sha (str): The SHA of the commit whose parent should be changed
+        new_parent_sha (str): The SHA of the new parent commit
+        
+    Returns:
+        bool: True if successful, False if validation fails or operation fails
+        
+    Raises:
+        ValueError: If either commit SHA doesn't exist
+    """
+    data_repo, graph_repo = find_repos()
+    if not data_repo or not graph_repo:
+        click.secho("Error: Must be run from within a valid data repository with a 'family_graph' submodule.", fg='red')
+        return False
+    
+    try:
+        # 1. Validate that both commit SHAs exist in the graph repo
+        try:
+            target_commit = graph_repo.commit(target_commit_sha)
+            click.echo(f"Found target commit: {target_commit.hexsha[:8]} - {target_commit.message.strip()}")
+        except (git.BadName, git.BadObject):
+            click.secho(f"Error: Target commit SHA '{target_commit_sha}' does not exist in the graph repository.", fg='red')
+            return False
+        
+        try:
+            new_parent_commit = graph_repo.commit(new_parent_sha)
+            click.echo(f"Found new parent commit: {new_parent_commit.hexsha[:8]} - {new_parent_commit.message.strip()}")
+        except (git.BadName, git.BadObject):
+            click.secho(f"Error: New parent commit SHA '{new_parent_sha}' does not exist in the graph repository.", fg='red')
+            return False
+        
+        # 2. Check if target commit would create a cycle (new parent is descendant of target)
+        try:
+            if graph_repo.is_ancestor(target_commit, new_parent_commit):
+                click.secho(f"Error: Cannot set '{new_parent_sha[:8]}' as parent of '{target_commit_sha[:8]}' - this would create a cycle.", fg='red')
+                return False
+        except git.GitCommandError:
+            # If we can't determine ancestry, proceed with caution
+            click.secho("Warning: Could not verify ancestry relationship. Proceeding with caution.", fg='yellow')
+        
+        # 3. Show current parent information
+        current_parents = target_commit.parents
+        if current_parents:
+            click.echo(f"Current parent(s) of {target_commit_sha[:8]}:")
+            for i, parent in enumerate(current_parents):
+                click.echo(f"  {i+1}. {parent.hexsha[:8]} - {parent.message.strip()}")
+        else:
+            click.echo(f"Target commit {target_commit_sha[:8]} is currently a root commit (no parents)")
+        
+        # 4. Perform the parent change using git replace + git filter-repo
+        original_cwd = os.getcwd()
+        os.chdir(graph_repo.working_dir)
+        
+        try:
+            # Step 1: Create a replacement using git replace --graft
+            click.echo(f"Creating replacement: {target_commit_sha[:8]} -> {new_parent_sha[:8]}")
+            subprocess.run([
+                "git", "replace", "--graft", target_commit.hexsha, new_parent_commit.hexsha
+            ], check=True, cwd=graph_repo.working_dir)
+            
+            # Step 2: Verify the replacement (optional, for debugging)
+            click.echo("Verifying replacement...")
+            result = subprocess.run([
+                "git", "log", "--graph", "--oneline", "--decorate", "-n", "10"
+            ], capture_output=True, text=True, cwd=graph_repo.working_dir)
+            
+            # Step 3: Make the replacement permanent using git filter-repo
+            click.echo("Making replacement permanent with git filter-repo...")
+            subprocess.run([
+                "git", "filter-repo", "--replace-refs", "delete-no-add", "--force"
+            ], check=True, cwd=graph_repo.working_dir)
+            
+            click.secho(f"Successfully changed parent of commit '{target_commit_sha[:8]}' to '{new_parent_sha[:8]}'.", fg='green')
+            
+            # 5. Commit the submodule update to the data repo
+            try:
+                data_repo.git.add('family_graph')
+                if data_repo.is_dirty():
+                    data_repo.index.commit(f"feat: Change parent of commit {target_commit_sha[:8]} to {new_parent_sha[:8]}")
+                    click.echo("Committed graph changes to data repository.")
+            except git.GitCommandError as e:
+                click.secho(f"Warning: Could not commit submodule changes: {e}", fg='yellow')
+            
+            return True
+            
+        except subprocess.CalledProcessError as e:
+            click.secho(f"Error during git operations: {e}", fg='red')
+            # Try to clean up any partial git replace state
+            try:
+                subprocess.run([
+                    "git", "replace", "-d", target_commit.hexsha
+                ], cwd=graph_repo.working_dir, check=False)
+            except:
+                pass
+            return False
+        finally:
+            os.chdir(original_cwd)
+            
+    except Exception as e:
+        click.secho(f"Unexpected error: {e}", fg='red')
+        return False
