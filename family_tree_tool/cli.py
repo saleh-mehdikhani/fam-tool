@@ -33,7 +33,7 @@ def init(root_path):
 
 
 @cli.command('add')
-@click.option('-f', '--first-name', required=True, help='The person\'s first name.')
+@click.option('-f', '--first-name', multiple=True, required=True, help='The person\'s first name. Can be used multiple times for multiple children.')
 @click.option('-l', '--last-name', required=True, help='The person\'s last name.')
 @click.option('-mn', '--middle-name', help='The person\'s middle name.')
 @click.option('-b', '--birth-date', help='Birth date in YYYY-MM-DD format.')
@@ -42,13 +42,48 @@ def init(root_path):
 @click.option('--father', 'father_id', help='The father\'s person ID.')
 @click.option('--mother', 'mother_id', help='The mother\'s person ID.')
 def add(first_name, last_name, middle_name, birth_date, gender, nickname, father_id, mother_id):
-    """Adds a new person to the family tree."""
-    click.echo(f"Adding person: {first_name} {last_name}...")
-    success = main.add_person(first_name, last_name, middle_name, birth_date, gender, nickname, father_id, mother_id)
-    if success:
-        click.secho("Successfully added person!", fg='green')
+    """Adds a new person to the family tree. Use multiple -f flags to add multiple children with the same family name."""
+    if len(first_name) == 1:
+        # Single person
+        click.echo(f"Adding person: {first_name[0]} {last_name}...")
+        success = main.add_person(first_name[0], last_name, middle_name, birth_date, gender, nickname, father_id, mother_id)
+        if success:
+            click.secho("Successfully added person!", fg='green')
+        else:
+            click.secho("Failed to add person.", fg='red')
     else:
-        click.secho("Failed to add person.", fg='red')
+        # Multiple children
+        if not father_id or not mother_id:
+            click.secho("Error: Both --father and --mother are required when adding multiple children.", fg='red')
+            return
+        
+        click.echo(f"Adding {len(first_name)} children with last name: {last_name}...")
+        success_count = 0
+        failed_names = []
+        
+        for i, fname in enumerate(first_name):
+            click.echo(f"Adding child {i+1}/{len(first_name)}: {fname} {last_name}")
+            
+            # Generate unique nickname if provided
+            child_nickname = None
+            if nickname:
+                child_nickname = f"{nickname}{i+1}" if len(first_name) > 1 else nickname
+            
+            success = main.add_person(fname, last_name, middle_name, birth_date, gender, child_nickname, father_id, mother_id)
+            if success:
+                success_count += 1
+                click.secho(f"✓ Successfully added {fname} {last_name}", fg='green')
+            else:
+                failed_names.append(fname)
+                click.secho(f"✗ Failed to add {fname} {last_name}", fg='red')
+        
+        # Summary
+        click.echo(f"\n=== Summary ===")
+        click.echo(f"Successfully added: {success_count}/{len(first_name)} children")
+        if failed_names:
+            click.secho(f"Failed to add: {', '.join(failed_names)}", fg='red')
+        else:
+            click.secho("All children added successfully!", fg='green')
 
 
 @cli.command('marry')
