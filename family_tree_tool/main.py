@@ -65,29 +65,25 @@ def remove_commit(repo_path: str, commit_sha: str):
 
     return True
 
-def remove_commit_from_graph(commit_sha, data_repo=None, graph_repo=None):
+def remove_commit_from_graph(commit_sha, graph_repo=None):
     """
     Wrapper function to remove a commit from the graph repository.
     Uses the new remove_commit implementation.
+    Requires a full SHA (40 characters) to be passed.
     """
-    if not data_repo or not graph_repo:
-        data_repo, graph_repo = find_repos()
-        if not data_repo or not graph_repo:
-            click.secho("Error: Could not find required repositories", fg='red')
-            return False
+    if not graph_repo:
+        click.secho("Error: graph_repo is required", fg='red')
+        return False
+    
+    # Validate that commit_sha is a full SHA (40 hex characters)
+    if not isinstance(commit_sha, str) or len(commit_sha) != 40 or not all(c in '0123456789abcdef' for c in commit_sha.lower()):
+        click.secho(f"Error: commit_sha must be a full 40-character SHA, got: {commit_sha}", fg='red')
+        return False
     
     try:
-        # Resolve short SHA to full SHA if needed
-        try:
-            commit = graph_repo.commit(commit_sha)
-            full_commit_sha = commit.hexsha
-        except BadName:
-            click.secho(f"Error: Commit {commit_sha} not found in graph repository", fg='red')
-            return False
-        
         # Use the new remove_commit function with graph repo path and full commit SHA
-        remove_commit(graph_repo.working_dir, full_commit_sha)
-        click.echo(f"Successfully removed commit {full_commit_sha[:8]} from graph repository")
+        remove_commit(graph_repo.working_dir, commit_sha)
+        click.echo(f"Successfully removed commit {commit_sha[:8]} from graph repository")
         return True
     except ValueError as e:
         click.secho(f"Error: {e}", fg='red')
@@ -823,14 +819,14 @@ def remove_person(person_id):
 
         # Step 2: Remove marriage commits
         for marriage_commit, _ in marriages:
-            if not remove_commit_from_graph(marriage_commit.hexsha, data_repo, graph_repo):
+            if not remove_commit_from_graph(marriage_commit.hexsha, graph_repo):
                 click.secho("Error: Failed to remove marriage commit.", fg='red')
                 return False
 
         # Step 3: Remove person commit
         person_commit = _find_person_commit_by_id(graph_repo, resolved_person_id)
         if person_commit:
-            if not remove_commit_from_graph(person_commit.hexsha, data_repo, graph_repo):
+            if not remove_commit_from_graph(person_commit.hexsha, graph_repo):
                 click.secho("Error: Failed to remove person commit.", fg='red')
                 return False
 
@@ -942,11 +938,11 @@ def _rewrite_history_for_removal(graph_repo, person_id, marriages, children):
         # 2. Remove commits using the new helper function
         person_commit = _find_person_commit_by_id(graph_repo, person_id)
         if person_commit:
-            if not remove_commit_from_graph(person_commit.hexsha, data_repo, graph_repo):
+            if not remove_commit_from_graph(person_commit.hexsha, graph_repo):
                 return False
         
         for marriage_commit, _ in marriages:
-            if not remove_commit_from_graph(marriage_commit.hexsha, data_repo, graph_repo):
+            if not remove_commit_from_graph(marriage_commit.hexsha, graph_repo):
                 return False
 
         click.echo("Graph history rewrite completed successfully.")
