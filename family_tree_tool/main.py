@@ -3,10 +3,100 @@ import yaml
 import os
 from pathlib import Path
 import git
+from git import Repo, BadName
 import subprocess
 import json
-import shutil
 import click
+
+# --- Custom Exceptions ---
+
+class CommitHasChildrenError(Exception):
+    pass
+
+# --- Commit Removal Functions ---
+
+def remove_commit(repo_path: str, commit_sha: str):
+    """
+    Remove a commit from a Git repository if it has no children (is a leaf).
+    If HEAD points to the commit, it will be moved to its parent before removal.
+    """
+    repo = Repo(repo_path)
+
+    # Verify commit exists and get full SHA
+    try:
+        commit = repo.commit(commit_sha)
+    except BadName:
+        raise ValueError(f"Commit {commit_sha} not found in {repo_path}")
+    full_sha = commit.hexsha
+
+    # Check for children
+    children = []
+    for ref in repo.references:
+        for c in repo.iter_commits(ref):
+            if full_sha in [p.hexsha for p in c.parents]:
+                children.append(c.hexsha)
+    if children:
+        raise CommitHasChildrenError(f"Commit {full_sha} has children: {children}")
+
+    # Move HEAD if necessary
+    if repo.head.commit.hexsha == full_sha:
+        if not commit.parents:
+            raise RuntimeError("Cannot remove root commit")
+        parent_sha = commit.parents[0].hexsha
+        repo.git.checkout(parent_sha)
+
+    # Delete tags pointing to the commit
+    for tag in repo.tags:
+        if tag.commit.hexsha == full_sha:
+            repo.delete_tag(tag)
+
+    # Delete branches pointing to the commit
+    for head in repo.heads:
+        if head.commit.hexsha == full_sha:
+            repo.git.branch("-D", head.name)
+
+    # Drop the commit with git-filter-repo
+    cmd = [
+        "git", "filter-repo",
+        "--force",
+        f"--commit-callback=exec('if commit.original_id == b\"{full_sha}\": commit.skip()')"
+    ]
+    subprocess.run(cmd, cwd=repo_path, check=True)
+
+    return True
+
+def remove_commit_from_graph(commit_sha, graph_repo=None):
+    """
+    Wrapper function to remove a commit from the graph repository.
+    Uses the new remove_commit implementation.
+    Requires a full SHA (40 characters) to be passed.
+    """
+    if not graph_repo:
+        click.secho("Error: graph_repo is required", fg='red')
+        return False
+    
+    # Validate that commit_sha is a full SHA (40 hex characters)
+    if not isinstance(commit_sha, str) or len(commit_sha) != 40 or not all(c in '0123456789abcdef' for c in commit_sha.lower()):
+        click.secho(f"Error: commit_sha must be a full 40-character SHA, got: {commit_sha}", fg='red')
+        return False
+    
+    try:
+        # Use the new remove_commit function with graph repo path and full commit SHA
+        remove_commit(graph_repo.working_dir, commit_sha)
+        click.echo(f"Successfully removed commit {commit_sha[:8]} from graph repository")
+        return True
+    except ValueError as e:
+        click.secho(f"Error: {e}", fg='red')
+        return False
+    except CommitHasChildrenError as e:
+        click.secho(f"Error: {e}", fg='red')
+        return False
+    except subprocess.CalledProcessError as e:
+        click.secho(f"Error during git filter-repo operation: {e}", fg='red')
+        return False
+    except Exception as e:
+        click.secho(f"Unexpected error removing commit: {e}", fg='red')
+        return False
 
 # --- Repository Discovery ---
 
@@ -729,14 +819,14 @@ def remove_person(person_id):
 
         # Step 2: Remove marriage commits
         for marriage_commit, _ in marriages:
-            if not _remove_single_commit(graph_repo, marriage_commit.hexsha):
+            if not remove_commit_from_graph(marriage_commit.hexsha, graph_repo):
                 click.secho("Error: Failed to remove marriage commit.", fg='red')
                 return False
 
         # Step 3: Remove person commit
         person_commit = _find_person_commit_by_id(graph_repo, resolved_person_id)
         if person_commit:
-            if not _remove_single_commit(graph_repo, person_commit.hexsha):
+            if not remove_commit_from_graph(person_commit.hexsha, graph_repo):
                 click.secho("Error: Failed to remove person commit.", fg='red')
                 return False
 
@@ -848,11 +938,11 @@ def _rewrite_history_for_removal(graph_repo, person_id, marriages, children):
         # 2. Remove commits using the new helper function
         person_commit = _find_person_commit_by_id(graph_repo, person_id)
         if person_commit:
-            if not remove_commit_from_graph(person_commit.hexsha, data_repo, graph_repo):
+            if not remove_commit_from_graph(person_commit.hexsha, graph_repo):
                 return False
         
         for marriage_commit, _ in marriages:
-            if not remove_commit_from_graph(marriage_commit.hexsha, data_repo, graph_repo):
+            if not remove_commit_from_graph(marriage_commit.hexsha, graph_repo):
                 return False
 
         click.echo("Graph history rewrite completed successfully.")
@@ -896,26 +986,6 @@ def _reparent_children_to_root(graph_repo, children, root_commit):
         
     except Exception as e:
         click.secho(f"Error reparenting children: {e}", fg='red')
-        return False
-
-def _remove_single_commit(graph_repo, commit_sha):
-    """Remove a single commit from the graph using git filter-repo."""
-    try:
-        # Use git filter-repo to remove the specific commit
-        result = subprocess.run([
-            'git', 'filter-repo', '--commit-callback',
-            f'if commit.original_id == b"{commit_sha}": commit.skip()',
-            '--force'
-        ], cwd=graph_repo.working_dir, capture_output=True, text=True)
-        
-        if result.returncode != 0:
-            click.secho(f"Error removing commit {_get_short_id(commit_sha)}: {result.stderr}", fg='red')
-            return False
-            
-        return True
-        
-    except Exception as e:
-        click.secho(f"Error removing commit {_get_short_id(commit_sha)}: {e}", fg='red')
         return False
 
 def _find_person_commit_by_id(graph_repo, person_id):
