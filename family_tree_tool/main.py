@@ -56,6 +56,12 @@ def remove_commit(repo_path: str, commit_sha: str):
             repo.git.branch("-D", head.name)
 
     # Drop the commit with git-filter-repo
+    # Clean up any previous git filter-repo state to avoid interactive prompts
+    filter_repo_dir = os.path.join(repo_path, '.git', 'filter-repo')
+    if os.path.exists(filter_repo_dir):
+        import shutil
+        shutil.rmtree(filter_repo_dir)
+    
     cmd = [
         "git", "filter-repo",
         "--force",
@@ -1341,6 +1347,14 @@ def change_commit_parent(target_commit_sha, new_parent_sha):
             
             # Step 3: Make the replacement permanent using git filter-repo
             click.echo("Making replacement permanent with git filter-repo...")
+            
+            # Clean up any previous git filter-repo state to avoid interactive prompts
+            filter_repo_dir = os.path.join(graph_repo.working_dir, '.git', 'filter-repo')
+            if os.path.exists(filter_repo_dir):
+                import shutil
+                shutil.rmtree(filter_repo_dir)
+                click.echo("Cleaned up previous git filter-repo state")
+            
             subprocess.run([
                 "git", "filter-repo", "--replace-refs", "delete-no-add", "--force"
             ], check=True, cwd=graph_repo.working_dir)
