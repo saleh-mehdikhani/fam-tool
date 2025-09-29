@@ -56,6 +56,15 @@ def remove_commit(repo_path: str, commit_sha: str):
             repo.git.branch("-D", head.name)
 
     # Drop the commit with git-filter-repo
+    # Save remote URLs before git filter-repo operation
+    saved_remotes = {}
+    try:
+        for remote in repo.remotes:
+            saved_remotes[remote.name] = list(remote.urls)
+    except Exception:
+        # If we can't read remotes, continue without saving
+        pass
+    
     # Clean up any previous git filter-repo state to avoid interactive prompts
     filter_repo_dir = os.path.join(repo_path, '.git', 'filter-repo')
     if os.path.exists(filter_repo_dir):
@@ -68,6 +77,19 @@ def remove_commit(repo_path: str, commit_sha: str):
         f"--commit-callback=exec('if commit.original_id == b\"{full_sha}\": commit.skip()')"
     ]
     subprocess.run(cmd, cwd=repo_path, check=True)
+    
+    # Restore remote URLs if they were removed
+    for remote_name, urls in saved_remotes.items():
+        try:
+            # Check if remote still exists
+            current_remotes = [r.name for r in repo.remotes]
+            if remote_name not in current_remotes:
+                # Remote was removed, recreate it
+                if urls:
+                    repo.create_remote(remote_name, urls[0])
+        except Exception:
+            # If we can't restore remotes, continue silently
+            pass
 
     return True
 
@@ -1401,3 +1423,87 @@ def change_commit_parent(target_commit_sha, new_parent_sha):
     except Exception as e:
         click.secho(f"Unexpected error: {e}", fg='red')
         return False
+
+
+def unmarry(person1_id, person2_id):
+    """Removes a marriage between two people if no children exist from this marriage."""
+    data_repo, graph_repo = find_repos()
+    if not data_repo or not graph_repo:
+        click.secho("Error: Must be run from within a valid data repository with a 'family_graph' submodule.", fg='red')
+        return False
+
+    # Resolve person IDs
+    resolved_person1_id = _resolve_person_id_input(data_repo, person1_id, "first person")
+    if not resolved_person1_id:
+        return False
+    
+    resolved_person2_id = _resolve_person_id_input(data_repo, person2_id, "second person")
+    if not resolved_person2_id:
+        return False
+
+    # Find the marriage commit
+    marriage_commit = _find_marriage_commit(graph_repo, resolved_person1_id, resolved_person2_id)
+    if not marriage_commit:
+        person1_details = _get_person_name_by_id(data_repo, resolved_person1_id)
+        person2_details = _get_person_name_by_id(data_repo, resolved_person2_id)
+        person1_name = person1_details.get('name', resolved_person1_id)
+        person2_name = person2_details.get('name', resolved_person2_id)
+        click.secho(f"Error: No marriage found between {person1_name} ({_get_short_id(resolved_person1_id)}) and {person2_name} ({_get_short_id(resolved_person2_id)}).", fg='red')
+        return False
+
+    # Check if this marriage has any children
+    children_from_marriage = _find_children_from_marriage(graph_repo, data_repo, marriage_commit)
+    if children_from_marriage:
+        person1_details = _get_person_name_by_id(data_repo, resolved_person1_id)
+        person2_details = _get_person_name_by_id(data_repo, resolved_person2_id)
+        person1_name = person1_details.get('name', resolved_person1_id)
+        person2_name = person2_details.get('name', resolved_person2_id)
+        
+        click.secho(f"Error: Cannot remove marriage between {person1_name} ({_get_short_id(resolved_person1_id)}) and {person2_name} ({_get_short_id(resolved_person2_id)}).", fg='red')
+        click.secho("The following children exist from this marriage:", fg='red')
+        for child_id in children_from_marriage:
+            child_details = _get_person_name_by_id(data_repo, child_id)
+            child_name = child_details.get('name', child_id)
+            click.echo(f"  - {child_name} ({_get_short_id(child_id)})")
+        click.secho("Please remove or transfer the children first before removing the marriage.", fg='red')
+        return False
+
+    # Remove the marriage commit
+    marriage_sha = marriage_commit.hexsha
+    success = remove_commit_from_graph(marriage_sha, graph_repo)
+    
+    if success:
+        person1_details = _get_person_name_by_id(data_repo, resolved_person1_id)
+        person2_details = _get_person_name_by_id(data_repo, resolved_person2_id)
+        person1_name = person1_details.get('name', resolved_person1_id)
+        person2_name = person2_details.get('name', resolved_person2_id)
+        click.secho(f"Successfully removed marriage between {person1_name} ({_get_short_id(resolved_person1_id)}) and {person2_name} ({_get_short_id(resolved_person2_id)}).", fg='green')
+        return True
+    else:
+        click.secho("Error: Failed to remove marriage commit.", fg='red')
+        return False
+
+
+def _find_children_from_marriage(graph_repo, data_repo, marriage_commit):
+    """Finds all children that have the given marriage commit as a parent."""
+    children = []
+    
+    # Get all people and their relationships
+    all_people = _get_all_people(data_repo)
+    
+    # Find all person tags (children) that have this marriage commit as a parent
+    all_tags = graph_repo.tags
+    person_tags = [tag for tag in all_tags if not tag.name.startswith("marriage_") and tag.name != "GRAPH_ROOT"]
+    
+    for tag in person_tags:
+        child_commit = tag.commit
+        child_id_short = tag.name
+        child_id_full = next((node['id'] for node in all_people if node['id'].startswith(child_id_short)), None)
+        
+        if child_id_full and child_commit.parents:
+            for parent_commit in child_commit.parents:
+                if parent_commit.hexsha == marriage_commit.hexsha:
+                    children.append(child_id_full)
+                    break
+    
+    return children

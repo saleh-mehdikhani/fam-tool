@@ -187,7 +187,19 @@ def report():
 @click.argument('person_id')
 def remove(person_id):
     """Removes a person from the family tree."""
-    main.remove_person(person_id)
+    success = main.remove_person(person_id)
+    if not success:
+        click.secho("Failed to remove person.", fg='red')
+
+
+@cli.command('unmarry')
+@click.argument('person1_id')
+@click.argument('person2_id')
+def unmarry(person1_id, person2_id):
+    """Removes a marriage between two people if no children exist from this marriage."""
+    success = main.unmarry(person1_id, person2_id)
+    if not success:
+        click.secho("Failed to remove marriage.", fg='red')
 
 
 if __name__ == '__main__':
