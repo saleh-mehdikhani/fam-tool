@@ -1317,6 +1317,15 @@ def change_commit_parent(target_commit_sha, new_parent_sha):
         original_cwd = os.getcwd()
         os.chdir(graph_repo.working_dir)
         
+        # Save remote URLs before git filter-repo operation
+        saved_remotes = {}
+        try:
+            for remote in graph_repo.remotes:
+                saved_remotes[remote.name] = list(remote.urls)
+        except Exception:
+            # If we can't read remotes, continue without saving
+            pass
+        
         try:
             # Step 1: Create a replacement using git replace --graft
             click.echo(f"Creating replacement: {target_commit_sha[:8]} -> {new_parent_sha[:8]}")
@@ -1335,6 +1344,19 @@ def change_commit_parent(target_commit_sha, new_parent_sha):
             subprocess.run([
                 "git", "filter-repo", "--replace-refs", "delete-no-add", "--force"
             ], check=True, cwd=graph_repo.working_dir)
+            
+            # Step 4: Restore remote URLs if they were removed
+            for remote_name, urls in saved_remotes.items():
+                try:
+                    # Check if remote still exists
+                    current_remotes = [r.name for r in graph_repo.remotes]
+                    if remote_name not in current_remotes:
+                        # Remote was removed, recreate it
+                        if urls:
+                            graph_repo.create_remote(remote_name, urls[0])
+                            click.echo(f"Restored remote '{remote_name}' with URL: {urls[0]}")
+                except Exception as e:
+                    click.secho(f"Warning: Could not restore remote '{remote_name}': {e}", fg='yellow')
             
             click.secho(f"Successfully changed parent of commit '{target_commit_sha[:8]}' to '{new_parent_sha[:8]}'.", fg='green')
             
