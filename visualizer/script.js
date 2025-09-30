@@ -28,6 +28,53 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     svg.call(zoom);
 
+    // Mode management
+    let currentMode = 'lineage'; // 'lineage' or 'path'
+    let selectedNodes = []; // Move selectedNodes declaration to the top for proper scope
+    const modeToggle = document.getElementById('mode-toggle');
+    const pathStatus = document.getElementById('path-status');
+    const pathStatusText = document.getElementById('path-status-text');
+
+    function updateModeUI() {
+        if (currentMode === 'lineage') {
+            modeToggle.setAttribute('data-mode', 'lineage');
+            modeToggle.querySelector('.mode-text').textContent = 'Lineage';
+            modeToggle.title = 'Click to switch to Path Finding mode';
+            pathStatus.classList.remove('show');
+        } else {
+            modeToggle.setAttribute('data-mode', 'path');
+            modeToggle.querySelector('.mode-text').textContent = 'Path';
+            modeToggle.title = 'Click to switch to Lineage mode';
+            pathStatus.classList.add('show');
+            updatePathStatus();
+        }
+    }
+
+    function updatePathStatus() {
+        if (currentMode === 'path') {
+            const selectedCount = selectedNodes.length;
+            if (selectedCount === 0) {
+                pathStatusText.textContent = 'Select 2 people to find paths';
+            } else if (selectedCount === 1) {
+                pathStatusText.textContent = `Selected: ${selectedNodes[0].name}. Select 1 more.`;
+            } else {
+                pathStatusText.textContent = `Finding paths between ${selectedNodes[0].name} and ${selectedNodes[1].name}`;
+            }
+        }
+    }
+
+    modeToggle.addEventListener('click', () => {
+        currentMode = currentMode === 'lineage' ? 'path' : 'lineage';
+        updateModeUI();
+        
+        // Clear any existing selections when switching modes
+        clearAllPathSelection();
+        clearLineageHighlight();
+    });
+
+    // Initialize mode UI
+    updateModeUI();
+
     const nodeSize = 32;
 
     g.append('defs').append('clipPath')
@@ -64,13 +111,29 @@ document.addEventListener('DOMContentLoaded', () => {
         // Add click event for lineage highlighting
         node.on("click", function(event, d) {
             event.stopPropagation();
-            highlightLineage(d);
+            
+            if (currentMode === 'path') {
+                // In path mode, regular click selects nodes for path finding
+                console.log("Path selection triggered for:", d.name);
+                handlePathSelection(d);
+            } else if (currentMode === 'lineage') {
+                // In lineage mode, check for Ctrl/Cmd+click for path finding
+                if (event.ctrlKey || event.metaKey) {
+                    console.log("Path selection triggered for:", d.name);
+                    handlePathSelection(d);
+                } else {
+                    // Regular click for lineage highlighting
+                    console.log("Lineage highlighting triggered for:", d.name);
+                    highlightLineage(d);
+                }
+            }
         });
 
         // Click on empty space to clear selection
-        svg.on("click", function() {
-            clearLineageHighlight();
-        });
+         svg.on("click", function() {
+             clearLineageHighlight();
+             clearAllPathSelection();
+         });
 
         node.each(function(d) {
             const group = d3.select(this);
@@ -158,12 +221,227 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         function clearLineageHighlight() {
-            node.classed('faded', false)
-                .classed('lineage-highlighted', false)
-                .classed('selected', false);
-            link.classed('faded', false)
-                .classed('lineage-highlighted', false);
-        }
+             node.classed('faded', false)
+                 .classed('lineage-highlighted', false)
+                 .classed('selected', false);
+             link.classed('faded', false)
+                 .classed('lineage-highlighted', false);
+         }
+
+         // --- PATH FINDING FUNCTIONS ---
+
+         function handlePathSelection(selectedPerson) {
+             console.log("handlePathSelection called for:", selectedPerson.name);
+             console.log("Current selectedNodes:", selectedNodes.map(n => n.name));
+             
+             // Clear any existing lineage highlighting
+             clearLineageHighlight();
+             
+             // Add or remove from selection
+             const existingIndex = selectedNodes.findIndex(node => node.id === selectedPerson.id);
+             if (existingIndex !== -1) {
+                 // Remove if already selected
+                 console.log("Removing from selection:", selectedPerson.name);
+                 selectedNodes.splice(existingIndex, 1);
+             } else {
+                 // Add to selection (max 2 nodes)
+                 if (selectedNodes.length >= 2) {
+                     console.log("Resetting selection, starting with:", selectedPerson.name);
+                     selectedNodes = [selectedPerson]; // Reset and start new selection
+                 } else {
+                     console.log("Adding to selection:", selectedPerson.name);
+                     selectedNodes.push(selectedPerson);
+                 }
+             }
+             
+             console.log("Updated selectedNodes:", selectedNodes.map(n => n.name));
+             
+             // Update visual feedback
+             updatePathSelectionVisual();
+             
+             // Update path status indicator
+             updatePathStatus();
+             
+             // If we have exactly 2 nodes, find and highlight paths
+             if (selectedNodes.length === 2) {
+                 console.log("Finding paths between:", selectedNodes[0].name, "and", selectedNodes[1].name);
+                 findAndHighlightShortestPaths(selectedNodes[0], selectedNodes[1]);
+             } else if (selectedNodes.length === 1) {
+                 console.log("One node selected, waiting for second selection");
+                 // Keep the visual feedback for the selected node
+             } else {
+                 console.log("No nodes selected, clearing path highlight");
+                 clearPathHighlight();
+             }
+         }
+
+         function updatePathSelectionVisual() {
+             // Clear all path selection classes
+             node.classed('path-selected', false);
+             
+             // Apply path-selected class to selected nodes
+             const selectedIds = new Set(selectedNodes.map(n => n.id));
+             node.filter(d => selectedIds.has(d.id))
+                 .classed('path-selected', true);
+         }
+
+         function findAndHighlightShortestPaths(startNode, endNode) {
+             console.log("findAndHighlightShortestPaths called with:", startNode.name, "->", endNode.name);
+             console.log("Start node ID:", startNode.id, "End node ID:", endNode.id);
+             
+             const paths = findAllShortestPaths(startNode.id, endNode.id);
+             console.log("Found paths:", paths);
+             
+             if (paths.length === 0) {
+                 console.log("No paths found between nodes");
+                 alert('No path found between the selected persons.');
+                 return;
+             }
+             
+             console.log("Number of shortest paths found:", paths.length);
+             
+             // Clear existing highlights
+             clearPathHighlight();
+             
+             // Fade all nodes and links
+             node.classed('faded', true);
+             link.classed('faded', true);
+             
+             // Collect all nodes and links in shortest paths
+             const pathNodeIds = new Set();
+             const pathLinkPairs = new Set();
+             
+             paths.forEach(path => {
+                 console.log("Processing path:", path);
+                 // Add all nodes in this path
+                 path.forEach(nodeId => pathNodeIds.add(nodeId));
+                 
+                 // Add all links in this path
+                 for (let i = 0; i < path.length - 1; i++) {
+                     const from = path[i];
+                     const to = path[i + 1];
+                     pathLinkPairs.add(`${from}-${to}`);
+                     pathLinkPairs.add(`${to}-${from}`); // Both directions
+                 }
+             });
+             
+             console.log("Path node IDs:", Array.from(pathNodeIds));
+             console.log("Path link pairs:", Array.from(pathLinkPairs));
+             
+             // Highlight path nodes
+             node.filter(d => pathNodeIds.has(d.id))
+                 .classed('faded', false)
+                 .classed('path-highlighted', true);
+             
+             // Highlight path links
+             link.filter(d => {
+                 const linkKey1 = `${d.source.id}-${d.target.id}`;
+                 const linkKey2 = `${d.target.id}-${d.source.id}`;
+                 return pathLinkPairs.has(linkKey1) || pathLinkPairs.has(linkKey2);
+             })
+                 .classed('faded', false)
+                 .classed('path-highlighted', true);
+             
+             // Keep selected nodes visible with their special styling
+             updatePathSelectionVisual();
+         }
+
+         function findAllShortestPaths(startId, endId) {
+             console.log("findAllShortestPaths called with startId:", startId, "endId:", endId);
+             
+             // BFS to find shortest path length
+             const queue = [[startId]];
+             const visited = new Set();
+             const allPaths = [];
+             let shortestLength = Infinity;
+             
+             console.log("Starting BFS with queue:", queue);
+             
+             while (queue.length > 0) {
+                 const currentPath = queue.shift();
+                 const currentNode = currentPath[currentPath.length - 1];
+                 
+                 console.log("Processing path:", currentPath, "current node:", currentNode);
+                 
+                 // If path is longer than shortest found, skip
+                 if (currentPath.length > shortestLength) {
+                     console.log("Skipping path - too long:", currentPath.length, ">", shortestLength);
+                     continue;
+                 }
+                 
+                 // If we reached the target
+                 if (currentNode === endId) {
+                     console.log("Reached target! Path:", currentPath, "Length:", currentPath.length);
+                     if (currentPath.length < shortestLength) {
+                         // Found shorter path, clear previous paths
+                         console.log("Found shorter path, clearing previous paths");
+                         shortestLength = currentPath.length;
+                         allPaths.length = 0;
+                         allPaths.push([...currentPath]);
+                     } else if (currentPath.length === shortestLength) {
+                         // Found another path of same length
+                         console.log("Found another path of same length");
+                         allPaths.push([...currentPath]);
+                     }
+                     continue;
+                 }
+                 
+                 // Skip if we've visited this node in a shorter path
+                 const pathKey = `${currentNode}-${currentPath.length}`;
+                 if (visited.has(pathKey)) {
+                     console.log("Skipping - already visited:", pathKey);
+                     continue;
+                 }
+                 visited.add(pathKey);
+                 
+                 // Find all connected nodes (both directions)
+                 const connectedNodes = [];
+                 links.forEach(link => {
+                     if (link.source.id === currentNode) {
+                         connectedNodes.push(link.target.id);
+                     } else if (link.target.id === currentNode) {
+                         connectedNodes.push(link.source.id);
+                     }
+                 });
+                 
+                 console.log("Connected nodes for", currentNode, ":", connectedNodes);
+                 
+                 // Add paths to connected nodes
+                 connectedNodes.forEach(nextNode => {
+                     if (!currentPath.includes(nextNode)) { // Avoid cycles
+                         const newPath = [...currentPath, nextNode];
+                         console.log("Adding new path to queue:", newPath);
+                         queue.push(newPath);
+                     } else {
+                         console.log("Skipping", nextNode, "- would create cycle");
+                     }
+                 });
+             }
+             
+             console.log("BFS completed. All paths found:", allPaths);
+             return allPaths;
+         }
+
+         function clearPathHighlight() {
+             // Don't clear selectedNodes here - only clear visual highlighting
+             node.classed('faded', false)
+                 .classed('path-highlighted', false);
+             link.classed('faded', false)
+                 .classed('path-highlighted', false);
+         }
+
+         function clearAllPathSelection() {
+             // This function clears everything including selected nodes
+             selectedNodes = [];
+             node.classed('faded', false)
+                 .classed('path-highlighted', false)
+                 .classed('path-selected', false);
+             link.classed('faded', false)
+                 .classed('path-highlighted', false);
+             
+             // Update path status indicator
+             updatePathStatus();
+         }
 
         // --- CONTROL PANEL LOGIC ---
         let searchResults = [];

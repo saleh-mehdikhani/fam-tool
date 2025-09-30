@@ -62,6 +62,105 @@ body {
     text-align: center;
 }
 
+/* Mode Toggle Button */
+.mode-button {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: #f8f9fa;
+    border: 2px solid #dee2e6;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-size: 14px;
+    font-weight: 500;
+    min-width: 120px;
+    justify-content: center;
+}
+
+.mode-button:hover {
+    background: #e9ecef;
+    border-color: #adb5bd;
+}
+
+.mode-button.active {
+    background: #007bff;
+    border-color: #007bff;
+    color: white;
+}
+
+.mode-button.active:hover {
+    background: #0056b3;
+    border-color: #0056b3;
+}
+
+.mode-button[data-mode="lineage"] .mode-icon::before {
+    content: "👥";
+}
+
+.mode-button[data-mode="path"] .mode-icon::before {
+    content: "🔗";
+}
+
+.mode-icon {
+    font-size: 16px;
+    line-height: 1;
+}
+
+.mode-text {
+    font-size: 13px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Mobile responsive adjustments */
+@media (max-width: 768px) {
+    .mode-button {
+        min-width: 100px;
+        padding: 6px 10px;
+        font-size: 12px;
+    }
+    
+    .mode-text {
+        font-size: 11px;
+    }
+    
+    .mode-icon {
+        font-size: 14px;
+    }
+}
+
+/* Status indicator for path selection mode */
+.path-selection-status {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    background: rgba(0, 123, 255, 0.9);
+    color: white;
+    padding: 8px 16px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    z-index: 1000;
+    display: none;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.path-selection-status.show {
+    display: block;
+}
+
+@media (max-width: 768px) {
+    .path-selection-status {
+        top: 10px;
+        right: 10px;
+        font-size: 11px;
+        padding: 6px 12px;
+    }
+}
+
 /* --- Visualization Styles --- */
 
 .node circle,
@@ -120,4 +219,31 @@ body {
 
 .link.lineage-highlighted {
     opacity: 1;
+}
+
+/* Path finding styles */
+.node.path-selected {
+    opacity: 1;
+}
+
+.node.path-selected circle,
+.node.path-selected image {
+    stroke: #28a745;
+    stroke-width: 4px;
+}
+
+.node.path-highlighted {
+    opacity: 1;
+}
+
+.node.path-highlighted circle,
+.node.path-highlighted image {
+    stroke: #ffc107;
+    stroke-width: 3px;
+}
+
+.link.path-highlighted {
+    opacity: 1;
+    stroke: #ffc107;
+    stroke-width: 3px;
 }
