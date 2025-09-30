@@ -61,6 +61,17 @@ document.addEventListener('DOMContentLoaded', () => {
         const link = g.append("g").attr("class", "links").selectAll("line").data(links).enter().append("line").attr("class", d => `link ${d.type}`);
         const node = g.append("g").attr("class", "nodes").selectAll("g").data(nodes).enter().append("g").attr("class", "node").call(d3.drag().on("start", dragstarted).on("drag", dragged).on("end", dragended));
 
+        // Add click event for lineage highlighting
+        node.on("click", function(event, d) {
+            event.stopPropagation();
+            highlightLineage(d);
+        });
+
+        // Click on empty space to clear selection
+        svg.on("click", function() {
+            clearLineageHighlight();
+        });
+
         node.each(function(d) {
             const group = d3.select(this);
             if (d.photo_path) {
@@ -80,6 +91,79 @@ document.addEventListener('DOMContentLoaded', () => {
         function dragstarted(event, d) { if (!event.active) simulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; }
         function dragged(event, d) { d.fx = event.x; d.fy = event.y; }
         function dragended(event, d) { if (!event.active) simulation.alphaTarget(0); d.fx = null; d.fy = null; }
+
+        // --- LINEAGE HIGHLIGHTING FUNCTIONS ---
+        function findAncestors(personId, visited = new Set()) {
+            if (visited.has(personId)) return [];
+            visited.add(personId);
+            
+            const ancestors = [];
+            const parentLinks = links.filter(link => link.target.id === personId && link.type === 'child');
+            
+            parentLinks.forEach(link => {
+                const parentId = link.source.id;
+                ancestors.push(parentId);
+                // Recursively find ancestors of this parent
+                ancestors.push(...findAncestors(parentId, visited));
+            });
+            
+            return ancestors;
+        }
+
+        function findDescendants(personId, visited = new Set()) {
+            if (visited.has(personId)) return [];
+            visited.add(personId);
+            
+            const descendants = [];
+            const childLinks = links.filter(link => link.source.id === personId && link.type === 'child');
+            
+            childLinks.forEach(link => {
+                const childId = link.target.id;
+                descendants.push(childId);
+                // Recursively find descendants of this child
+                descendants.push(...findDescendants(childId, visited));
+            });
+            
+            return descendants;
+        }
+
+        function highlightLineage(selectedPerson) {
+            // Clear any existing highlights
+            clearLineageHighlight();
+            
+            // Find all ancestors and descendants
+            const ancestors = findAncestors(selectedPerson.id);
+            const descendants = findDescendants(selectedPerson.id);
+            
+            // Create set of all people in the lineage (including selected person)
+            const lineageIds = new Set([selectedPerson.id, ...ancestors, ...descendants]);
+            
+            // Apply faded class to all nodes and links
+            node.classed('faded', true);
+            link.classed('faded', true);
+            
+            // Remove faded class and add lineage-highlighted class for lineage members
+            node.filter(d => lineageIds.has(d.id))
+                .classed('faded', false)
+                .classed('lineage-highlighted', true);
+            
+            // Highlight the selected person specifically
+            node.filter(d => d.id === selectedPerson.id)
+                .classed('selected', true);
+            
+            // Highlight links that connect lineage members
+            link.filter(d => lineageIds.has(d.source.id) && lineageIds.has(d.target.id))
+                .classed('faded', false)
+                .classed('lineage-highlighted', true);
+        }
+
+        function clearLineageHighlight() {
+            node.classed('faded', false)
+                .classed('lineage-highlighted', false)
+                .classed('selected', false);
+            link.classed('faded', false)
+                .classed('lineage-highlighted', false);
+        }
 
         // --- CONTROL PANEL LOGIC ---
         let searchResults = [];

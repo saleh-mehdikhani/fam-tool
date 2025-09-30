@@ -98,3 +98,26 @@ body {
     stroke-width: 1.5px;
     stroke: #555;
 }
+
+/* Lineage highlighting styles */
+.node.faded {
+    opacity: 0.3;
+}
+
+.node.lineage-highlighted {
+    opacity: 1;
+}
+
+.node.selected circle,
+.node.selected image {
+    stroke: #007bff;
+    stroke-width: 4px;
+}
+
+.link.faded {
+    opacity: 0.2;
+}
+
+.link.lineage-highlighted {
+    opacity: 1;
+}
