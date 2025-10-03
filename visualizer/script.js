@@ -77,6 +77,50 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const nodeSize = 32;
 
+    // Sibling grouping force function
+    function siblingGroupingForce(siblingGroups, nodes) {
+        const nodeMap = new Map(nodes.map(n => [n.id, n]));
+        
+        return function(alpha) {
+            const strength = alpha * 0.5; // Stronger force for sibling grouping
+            
+            siblingGroups.forEach(siblings => {
+                if (siblings.length < 2) return; // Need at least 2 siblings to group
+                
+                // Calculate center of sibling group
+                let centerX = 0, centerY = 0;
+                const validSiblings = [];
+                
+                siblings.forEach(siblingId => {
+                    const sibling = nodeMap.get(siblingId);
+                    if (sibling) {
+                        centerX += sibling.x;
+                        centerY += sibling.y;
+                        validSiblings.push(sibling);
+                    }
+                });
+                
+                if (validSiblings.length < 2) return;
+                
+                centerX /= validSiblings.length;
+                centerY /= validSiblings.length;
+                
+                // Apply attractive force to keep siblings close together
+                validSiblings.forEach(sibling => {
+                    const dx = centerX - sibling.x;
+                    const dy = centerY - sibling.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    
+                    if (distance > 0) {
+                        const force = strength * distance * 0.2;
+                        sibling.vx += dx / distance * force;
+                        sibling.vy += dy / distance * force;
+                    }
+                });
+            });
+        };
+    }
+
     g.append('defs').append('clipPath')
         .attr('id', 'clip-circle')
         .append('circle')
@@ -97,15 +141,50 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         console.log("[DEBUG] Max Generation from data:", maxGeneration);
 
+        // Create sibling grouping data structures
+        const siblingGroups = new Map(); // Map of parent pairs to their children (siblings)
+        const nodeParents = new Map(); // Map of child ID to parent IDs
+        
+        // Process parent-child relationships
+        links.forEach(link => {
+            if (link.type === 'child') {
+                const parentId = link.source;
+                const childId = link.target;
+                
+                if (!nodeParents.has(childId)) {
+                    nodeParents.set(childId, []);
+                }
+                nodeParents.get(childId).push(parentId);
+            }
+        });
+        
+        // Group children by their parent pairs (siblings)
+        nodeParents.forEach((parents, childId) => {
+            if (parents.length === 2) {
+                // Sort parent IDs to create consistent sibling group key
+                const sortedParents = parents.sort();
+                const siblingKey = `${sortedParents[0]}-${sortedParents[1]}`;
+                
+                if (!siblingGroups.has(siblingKey)) {
+                    siblingGroups.set(siblingKey, []);
+                }
+                siblingGroups.get(siblingKey).push(childId);
+            }
+        });
+        
+        console.log("[DEBUG] Sibling groups:", siblingGroups);
+
         const levelHeight = 180;
         const simulation = d3.forceSimulation(nodes)
             .force("link", d3.forceLink(links).id(d => d.id).strength(0.4).distance(100))
             .force("charge", d3.forceManyBody().strength(-600))
             .force("collide", d3.forceCollide(nodeSize + 10))
             .force("x", d3.forceX(width / 2).strength(0.02))
-            .force("y", d3.forceY(d => height - 100 - (d.generation * levelHeight)).strength(d => d.generation === -1 ? 0 : 1));
+            .force("y", d3.forceY(d => height - 100 - (d.generation * levelHeight)).strength(d => d.generation === -1 ? 0 : 1))
+            .force("siblings", siblingGroupingForce(siblingGroups, nodes));
 
         const link = g.append("g").attr("class", "links").selectAll("line").data(links).enter().append("line").attr("class", d => `link ${d.type}`);
+        
         const node = g.append("g").attr("class", "nodes").selectAll("g").data(nodes).enter().append("g").attr("class", "node").call(d3.drag().on("start", dragstarted).on("drag", dragged).on("end", dragended));
 
         // Add click event for lineage highlighting
@@ -134,6 +213,18 @@ document.addEventListener('DOMContentLoaded', () => {
              clearLineageHighlight();
              clearAllPathSelection();
          });
+
+        // Add visual classes to nodes based on their role
+        node.each(function(d) {
+            const nodeElement = d3.select(this);
+            
+            // Check if this node is a child (has siblings)
+            const isChild = links.some(link => link.type === 'child' && link.target === d.id);
+            
+            if (isChild) {
+                nodeElement.classed("sibling-node", true);
+            }
+        });
 
         node.each(function(d) {
             const group = d3.select(this);

@@ -247,3 +247,14 @@ body {
     stroke: #ffc107;
     stroke-width: 3px;
 }
+
+/* Family grouping visual indicators */
+.node.sibling-node circle {
+    stroke: #fff;
+    stroke-width: 1.5px;
+}
+
+.node.sibling-node image {
+    stroke: #fff;
+    stroke-width: 1.5px;
+}
