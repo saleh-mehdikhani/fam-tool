@@ -7,6 +7,7 @@ from git import Repo, BadName
 import subprocess
 import json
 import click
+import shutil
 
 # --- Custom Exceptions ---
 
@@ -680,12 +681,55 @@ def export_to_json(output_filename):
     output_path = build_dir / output_filename
 
     try:
+        # Write the JSON data file
         with open(output_path, 'w', encoding='utf-8') as f:
             json.dump(output_data, f, indent=2, ensure_ascii=False)
         print(f"Successfully exported data to {output_path}")
+        
+        # Copy visualizer files to create a complete static website
+        visualizer_dir = Path(__file__).parent.parent / 'visualizer'
+        
+        if visualizer_dir.exists():
+            print("Copying visualizer files for static website deployment...")
+            
+            # List of files to copy from visualizer directory
+            files_to_copy = ['index.html', 'script.js', 'style.css']
+            
+            for file_name in files_to_copy:
+                src_file = visualizer_dir / file_name
+                if src_file.exists():
+                    dst_file = build_dir / file_name
+                    shutil.copy2(src_file, dst_file)
+                    print(f"  Copied {file_name}")
+                else:
+                    print(f"  Warning: {file_name} not found in visualizer directory")
+            
+            # Copy imgs folder if it exists
+            imgs_dir = Path(data_repo.working_dir) / 'imgs'
+            if imgs_dir.exists():
+                dst_imgs_dir = build_dir / 'imgs'
+                if dst_imgs_dir.exists():
+                    shutil.rmtree(dst_imgs_dir)
+                shutil.copytree(imgs_dir, dst_imgs_dir)
+                print(f"  Copied imgs folder with {len(list(imgs_dir.glob('*')))} files")
+            else:
+                print("  Warning: imgs folder not found in data repository")
+            
+            # Rename the JSON file to 'data.json' as expected by the visualizer
+            if output_filename != 'data.json':
+                data_json_path = build_dir / 'data.json'
+                shutil.copy2(output_path, data_json_path)
+                print(f"  Created data.json for visualizer")
+            
+            print(f"Static website ready for deployment in: {build_dir}")
+            print("You can now deploy the entire 'build' directory to any static web hosting service.")
+        else:
+            print(f"Warning: Visualizer directory not found at {visualizer_dir}")
+            print("Only JSON data exported.")
+        
         return True
     except Exception as e:
-        print(f"Error writing JSON file: {e}")
+        print(f"Error during export: {e}")
         return False
 
 def _get_all_people(data_repo):
@@ -702,7 +746,8 @@ def _get_all_people(data_repo):
                 'id': person_data.get('id'),
                 'first_name': person_data.get('first_name'),
                 'last_name': person_data.get('last_name'),
-                'name': person_data.get('name')
+                'name': person_data.get('name'),
+                'photo_path': person_data.get('photo_path')
             })
     return people
 
