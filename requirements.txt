@@ -1,5 +1,6 @@
 Click>=8.0.0
 PyYAML>=6.0
 GitPython>=3.1.0
+git-filter-repo>=2.38.0
 pytest>=7.0.0
 pytest-cov>=4.0.0

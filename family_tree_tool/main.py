@@ -454,7 +454,7 @@ def add_person(first_name, last_name, middle_name, birth_date, gender, nickname,
     data_repo.index.commit(f"feat: Add person '{full_name}' ({short_id})")
     print("Committed person file to data repository.")
 
-    return True
+    return short_id
 
 def marry(male, female, commit_submodule=True):
     """Creates a marriage event between two people in the graph repository."""
@@ -469,6 +469,11 @@ def marry(male, female, commit_submodule=True):
     if not resolved_male_id or not resolved_female_id:
         return False # Abort if IDs cannot be resolved
 
+    # Check if trying to marry a person to themselves
+    if resolved_male_id == resolved_female_id:
+        print("Error: A person cannot marry themselves.")
+        return False
+
     nodes = _get_all_people(data_repo)
     parents_map, _ = _get_relationships(graph_repo, nodes)
 
@@ -480,7 +485,7 @@ def marry(male, female, commit_submodule=True):
             print("Operation aborted by user.")
             return False
 
-    # Check if either person is already married
+    # Check if this specific marriage pair already exists
     if _find_marriage_commit(graph_repo, resolved_male_id, resolved_female_id):
         print("Error: Marriage already registered.")
         return False
@@ -493,18 +498,11 @@ def marry(male, female, commit_submodule=True):
             print("Error: Could not find one or both persons.")
             return False
 
-        # Check if marriage already exists
-        marriage_tag1 = f"marriage_{_get_short_id(resolved_male_id)}_{_get_short_id(resolved_female_id)}"
-        marriage_tag2 = f"marriage_{_get_short_id(resolved_female_id)}_{_get_short_id(resolved_male_id)}"
-        if marriage_tag1 in graph_repo.tags or marriage_tag2 in graph_repo.tags:
-            print("Error: Marriage already registered.")
-            return False
-
         # Create a merge commit
         merge_base = graph_repo.merge_base(male_commit, female_commit)
         graph_repo.index.merge_tree(female_commit, base=merge_base)
         commit_message = f"Marriage: {_get_short_id(resolved_male_id)} and {_get_short_id(resolved_female_id)}"
-        marriage_commit = graph_repo.index.commit(commit_message, parent_commits=(male_commit, female_commit), head=False)
+        marriage_commit = graph_repo.index.commit(commit_message, parent_commits=(male_commit, female_commit))
 
         # Tag the marriage commit
         marriage_tag = f"marriage_{_get_short_id(resolved_male_id)}_{_get_short_id(resolved_female_id)}"
@@ -679,6 +677,9 @@ def export_to_json(output_filename):
     build_dir = Path(data_repo.working_dir) / 'build'
     build_dir.mkdir(exist_ok=True)
     output_path = build_dir / output_filename
+    
+    # Create parent directories for the output file if needed
+    output_path.parent.mkdir(parents=True, exist_ok=True)
 
     try:
         # Write the JSON data file

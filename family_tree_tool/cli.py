@@ -46,9 +46,9 @@ def add(first_name, last_name, middle_name, birth_date, gender, nickname, father
     if len(first_name) == 1:
         # Single person
         click.echo(f"Adding person: {first_name[0]} {last_name}...")
-        success = main.add_person(first_name[0], last_name, middle_name, birth_date, gender, nickname, father_id, mother_id)
-        if success:
-            click.secho("Successfully added person!", fg='green')
+        person_id = main.add_person(first_name[0], last_name, middle_name, birth_date, gender, nickname, father_id, mother_id)
+        if person_id:
+            click.secho(f"Successfully added person! (ID: {person_id[:8]})", fg='green')
         else:
             click.secho("Failed to add person.", fg='red')
     else:
@@ -97,6 +97,7 @@ def marry(male, female):
         click.secho("Successfully created marriage event!", fg='green')
     else:
         click.secho("Failed to create marriage event.", fg='red')
+        raise click.ClickException("Marriage operation failed")
 
 @cli.command('child')
 @click.argument('child_id')
@@ -110,6 +111,7 @@ def child(child_id, father_id, mother_id):
         click.secho("Successfully added child!", fg='green')
     else:
         click.secho("Failed to add child.", fg='red')
+        raise click.ClickException("Failed to add child")
 
 @cli.command('export')
 @click.option('--output', default='family_tree.json', help='The output file name.')
