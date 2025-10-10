@@ -32,7 +32,7 @@ Two repositories work together: one for people metadata (YAML files), and one as
    ```
 4. Install the tool:
    ```bash
-   pip install /path/to/family_tree_tool
+   pip install /path/to/fam-tool
    ```
 5. Initialize your family tree data:
    ```bash
