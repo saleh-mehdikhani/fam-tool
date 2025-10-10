@@ -8,6 +8,8 @@ A command-line tool for managing family tree data using Git repositories. It ena
 
 Curious what your family tree could look like? Check out this live sample: [family_data_sample](https://github.com/saleh-mehdikhani/family_data_sample) and explore the interactive visualization at [famtool.netlify.app](https://famtool.netlify.app/).
 
+![Sample Website Screenshot](doc/img/famtool_web.png)
+
 You can build a similar system for yourself—privately and securely—by storing your data in a private GitHub repository and deploying the visualization for free on platforms like Netlify. Your family history, always under your control and accessible anywhere, at zero cost.
 
 ## Project Idea
