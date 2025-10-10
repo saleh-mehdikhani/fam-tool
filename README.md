@@ -57,7 +57,7 @@ Because the ID is used in both places, you can instantly navigate from a personâ
   fam add -f Jane -l Doe
   fam marry -m "John Smith" -f "Jane Doe"
   fam add -f Child1 -l Smith --father "John Smith" --mother "Jane Doe"
-  fam add -f Child2 -f Child3 -l Smith --father "John Smith" --mother "Jane Doe"
+  fam add -f Child2 -f Child3 -l Smith --father John --mother Jane
   ```
 - Create two empty Github (or other providers) projects and set up remote and push changes:
   ```bash
