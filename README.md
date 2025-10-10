@@ -18,6 +18,12 @@ Imagine building and exploring your family tree—without ever touching a databa
 
 Two repositories work together: one for people metadata (YAML files), and one as a Git submodule for relationships. Each commit marks a new person or a marriage, making the evolution of your family tree visible and traceable. Add a person, and you add a file and a commit—no database required, just pure Git magic. This approach keeps your data portable, secure, and always under your control.
 
+The image below shows the commit history in the graph repository that stores family-tree relationships.  
+When you add a person with the `fam` tool, they receive a unique ID that becomes both the YAML filename and a Git tag in the graph repo.  
+Because the ID is used in both places, you can instantly navigate from a person’s YAML file to the exact commit that records their relationships.
+
+![Sample Website Screenshot](doc/img/fam_graph.png)
+
 ## Installation
 
 1. Clone this repository:
