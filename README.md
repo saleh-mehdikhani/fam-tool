@@ -1,3 +1,5 @@
+![Project Logo](doc/img/logo.svg)
+
 # Family Tree Tool
 
 A command-line tool for managing family tree data using Git repositories. It enables you to build, visualize, and maintain complex family relationships with simple file-based storage—no database required.
