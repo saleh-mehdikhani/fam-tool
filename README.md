@@ -1,64 +1,68 @@
-# Fam-Tool
+![Project Logo](doc/img/logo.svg)
 
-A command-line tool for managing family tree data using a dual-repository Git model.
+# Family Tree Tool
 
-This tool separates person data (YAML files) from relationship data (a Git commit graph), allowing for flexible data management and a robust, version-controlled family structure.
+A command-line tool for managing family tree data using Git repositories. It enables you to build, visualize, and maintain complex family relationships with simple file-based storage—no database required.
+
+## Output Example
+
+Curious what your family tree could look like? Check out this live sample: [family_data_sample](https://github.com/saleh-mehdikhani/family_data_sample) and explore the interactive visualization at [famtool.netlify.app](https://famtool.netlify.app/).
+
+![Sample Website Screenshot](doc/img/famtool_web.png)
+
+You can build a similar system for yourself—privately and securely—by storing your data in a private GitHub repository and deploying the visualization for free on platforms like Netlify. Your family history, always under your control and accessible anywhere, at zero cost.
+
+## Project Idea
+
+Imagine building and exploring your family tree—without ever touching a database. This tool leverages the power of files and Git to make your family history easy to manage, visualize, and share. Every detail is stored in simple YAML files, and every relationship is tracked through Git commits, so you get full transparency and revision control. No hidden data, no complex setup—just files you can version, backup, and move anywhere.
+
+Two repositories work together: one for people metadata (YAML files), and one as a Git submodule for relationships. Each commit marks a new person or a marriage, making the evolution of your family tree visible and traceable. Add a person, and you add a file and a commit—no database required, just pure Git magic. This approach keeps your data portable, secure, and always under your control.
+
+The image below shows the commit history in the graph repository that stores family-tree relationships.  
+When you add a person with the `fam` tool, they receive a unique ID that becomes both the YAML filename and a Git tag in the graph repo.  
+Because the ID is used in both places, you can instantly navigate from a person’s YAML file to the exact commit that records their relationships.
+
+![Sample Website Screenshot](doc/img/fam_graph.png)
 
 ## Installation
 
-To install the tool, clone this repository and use `pip` to install it in editable mode within a virtual environment.
+1. Clone this repository:
+   ```bash
+   git clone https://github.com/saleh-mehdikhani/fam-tool.git
+   ```
+2. Create a folder outside this project for your family tree data:
+   ```bash
+   mkdir ~/my-family-tree
+   cd ~/my-family-tree
+   ```
+3. Set up a Python virtual environment:
+   ```bash
+   python3 -m venv .venv
+   source .venv/bin/activate
+   ```
+4. Install the tool:
+   ```bash
+   pip install /path/to/fam-tool
+   ```
+5. Initialize your family tree data:
+   ```bash
+   fam init .
+   ```
 
-```bash
-# Clone the repository
-git clone <this_repository_url>
-cd fam-tool
+## Usage Example
 
-# Create and activate a virtual environment
-python3 -m venv .venv
-source .venv/bin/activate
+- Add new people:
+  ```bash
+  fam add -f John -l Smith
+  fam add -f Jane -l Doe
+  fam marry -m "John Smith" -f "Jane Doe"
+  fam add -f Child1 -l Smith --father "John Smith" --mother "Jane Doe"
+  fam add -f Child2 -f Child3 -l Smith --father John --mother Jane
+  ```
+- Create two empty Github (or other providers) projects and set up remote and push changes:
+  ```bash
+  fam set-remote -d <remote-url-data-repo> -g <remote-url-graph-repo>
+  fam push-remote
+  ```
 
-# Install the tool in editable mode
-pip install -e .
-```
-
-## Getting Started
-
-To create a new family tree project, use the `fam init` command. This will create a new directory where your family tree data will be stored.
-
-```bash
-# This path is where your family tree data will be stored.
-fam init /path/to/my-family-tree
-```
-
-This will create a new directory named `my-family-tree` at the specified path, with the following structure:
-
-```
-/path/to/
-└── my-family-tree/
-    ├── .git/
-    ├── .gitmodules
-    ├── family_graph/
-    └── people/
-```
-
-You are now ready to use the `fam` tool inside the `my-family-tree` directory.
-
-## Usage
-
-### Add a new person
-
-```bash
-fam add -fn "John" -l "Doe" -b "1950-10-25" -g "Male"
-```
-
-### Marry two people
-
-```bash
-fam marry --male <male_person_id> --female <female_person_id>
-```
-
-### Add a child to a couple
-
-```bash
-fam child <child_id> -f <father_id> -m <mother_id>
-```
+For more details, see the documentation and explore the sample output links above.
